@@ -16,6 +16,7 @@ or continue the work without reading the live repo first.
 
 - `code/services/api/claude_worker/worker.py`
 - `code/services/api/tests/test_claude_worker.py`
+- `worker.skill.json`
 
 ## What This Project Covers
 
@@ -23,6 +24,7 @@ or continue the work without reading the live repo first.
 - detached run / supervisor seed
 - CLI end-to-end integration tests
 - result protocol alignment with the current harness
+- worker manifest for IKE harness import
 
 ## Validation Recorded by the Delegate
 

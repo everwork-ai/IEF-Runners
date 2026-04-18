@@ -1,0 +1,62 @@
+{
+  "schema_version": "1",
+  "skill_id": "claude-worker",
+  "name": "Claude Worker",
+  "kind": "worker",
+  "version": "0.2.0",
+  "status": "active",
+  "entrypoint": "python -m claude_worker",
+  "repo_root": "D:/code/claude-worker",
+  "default_execution_mode": "one_shot",
+  "supported_execution_modes": ["one_shot", "interactive"],
+  "model_switching": {
+    "default_model": "qwen3.6-plus",
+    "supported_models": ["qwen3.6-plus"],
+    "supported_providers": ["bailian-cp", "zhipu-cp"],
+    "supports_model_override": true,
+    "supports_provider_override": true,
+    "provider_policy": "external_harness_controlled",
+    "reasoning_mode_default": "high"
+  },
+  "artifact_contract": [
+    "meta.json",
+    "events.ndjson",
+    "stdout.txt",
+    "stderr.txt",
+    "exitcode.txt",
+    "final.json",
+    "harness_result.json",
+    "summary.md"
+  ],
+  "result_protocol": {
+    "summary": true,
+    "files_changed": true,
+    "why_this_solution": true,
+    "validation_run": true,
+    "known_risks": true,
+    "recommendation": true,
+    "execution_mode": true,
+    "prompt_delivery": true,
+    "lifecycle": true,
+    "model_provenance": true
+  },
+  "trust_boundary": {
+    "role": "delegated_worker",
+    "cannot": [
+      "change priorities",
+      "change acceptance criteria",
+      "change runtime truth",
+      "change AI evolution direction"
+    ]
+  },
+  "validation_hooks": [
+    "python -m unittest tests.test_claude_worker",
+    "python -m compileall claude_worker tests\\test_claude_worker.py"
+  ],
+  "stop_conditions": [
+    "controller architecture changes required",
+    "generic multi-agent framework rewrite",
+    "sandbox enforcement claims exceed evidence",
+    "durable artifact claims are not supported by files on disk"
+  ]
+}
