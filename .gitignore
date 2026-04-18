@@ -2,6 +2,8 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .runtime/
+.qoder/
+**/.runtime/
 code/**/__pycache__/
 code/**/*.pyc
 code/**/.pytest_cache/

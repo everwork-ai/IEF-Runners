@@ -971,6 +971,15 @@ class ClaudeWorkerRuntime:
             final_payload["validation_run"] = normalized.get("validation_run", "")
             final_payload["known_risks"] = normalized.get("known_risks", [])
 
+        prompt_path = record.run_dir / PROMPT_FILENAME
+        if prompt_path.exists():
+            final_payload["prompt_delivery"] = {
+                "method": "file_and_stdin",
+                "prompt_file": str(prompt_path),
+                "prompt_file_exists": True,
+                "prompt_file_size": prompt_path.stat().st_size,
+            }
+
         meta_path = record.run_dir / "meta.json"
         meta = _read_json(meta_path) if meta_path.exists() else {}
         final_status = final_payload["status"]
@@ -990,15 +999,6 @@ class ClaudeWorkerRuntime:
             },
         )
         _write_json(record.run_dir / "final.json", final_payload)
-        # Include prompt_delivery evidence in final metadata
-        prompt_path = record.run_dir / PROMPT_FILENAME
-        if prompt_path.exists():
-            final_payload["prompt_delivery"] = {
-                "method": "file_and_stdin",
-                "prompt_file": str(prompt_path),
-                "prompt_file_exists": True,
-                "prompt_file_size": prompt_path.stat().st_size,
-            }
         self._write_harness_result(record, final_payload)
         summary_lines = [
             f"# Run {record.run_id}",

@@ -1106,6 +1106,11 @@ class ClaudeWorkerRuntimeTest(unittest.TestCase):
             result = runtime.wait(record.run_id)
             self.assertIn("prompt_delivery", result)
             self.assertTrue(result["prompt_delivery"]["prompt_file_exists"])
+            final_path = record.run_dir / "final.json"
+            self.assertTrue(final_path.exists())
+            final_payload = json.loads(final_path.read_text(encoding="utf-8"))
+            self.assertIn("prompt_delivery", final_payload)
+            self.assertTrue(final_payload["prompt_delivery"]["prompt_file_exists"])
 
     def test_cli_execution_mode_argument(self) -> None:
         parser = build_parser()
