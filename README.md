@@ -104,20 +104,76 @@ python -m claude_worker.worker session-start \
 
 ## Provider Management
 
+### Credential Resolution Order
+
+When a task runs, credentials are resolved in this order (first non-empty wins):
+
+```
+1. CredentialStore (~/.claude-worker/credentials.db)  ← set via: provider set-key
+2. Environment variables (e.g. ZAI_API_KEY=xxx)       ← set via: export / .env
+3. cc-switch DB (legacy fallback)                      ← imported via: provider import-cc-switch
+4. ~/.claude/settings.json (last resort)               ← existing CC config
+```
+
+**You only need ONE of these.** If you store a key via `provider set-key`, you do NOT need to set environment variables.
+
+### How to Set Up a Provider
+
 ```bash
-# List providers
-python -m claude_worker.worker provider list
+# Option A: Store key in encrypted DB (recommended — persists across sessions)
+claude-worker provider set-key z-ai
+# Prompts: Enter API key for z-ai (ZAI_API_KEY): <paste your key>
 
-# Add a custom provider
-python -m claude_worker.worker provider add my-provider \
-  --base-url https://api.example.com/api/anthropic \
-  --auth-token-env ANTHROPIC_AUTH_TOKEN
+# Option B: Environment variable (no DB, must set every session)
+export ZAI_API_KEY=your-key-here
 
-# Import from cc-switch
-python -m claude_worker.worker provider import-cc-switch
+# Then verify it works:
+claude-worker provider verify z-ai
+```
 
-# Verify connectivity
-python -m claude_worker.worker provider verify my-provider
+### Supported Providers
+
+| Provider | Key Env Var | Base URL | Models | Auth Method |
+|----------|------------|----------|--------|-------------|
+| **z-ai** | `ZAI_API_KEY` | `https://api.z.ai/api/anthropic` | glm-4.7, glm-4.5-air | AUTH_TOKEN (key → ANTHROPIC_AUTH_TOKEN) |
+| **qwen-bailian-coding** | `DASHSCOPE_CODING_API_KEY` | `https://coding.dashscope.aliyuncs.com/apps/anthropic` | qwen3.6-plus, qwen3-coder, qwen3-coder-plus, qwen-coder-plus-latest | API_KEY (key → ANTHROPIC_API_KEY) |
+| **qwen-bailian** | `DASHSCOPE_API_KEY` | `https://dashscope.aliyuncs.com/apps/anthropic` | qwen3.6-plus, qwen3-max, qwen3-coder-plus, qwen3-coder-next, qwen-plus, qwen-turbo, qwen3.5-flash, qwen3-vl-plus | API_KEY |
+| **deepseek** | `DEEPSEEK_API_KEY` | `https://api.deepseek.com/anthropic` | deepseek-chat, deepseek-reasoner | AUTH_TOKEN |
+| **openrouter** | `OPENROUTER_API_KEY` | `https://openrouter.ai/api` | anthropic/claude-opus-4.7, anthropic/claude-sonnet-4.6, openai/gpt-4o | AUTH_TOKEN |
+| **kimi** | `MOONSHOT_API_KEY` | `https://api.moonshot.cn/anthropic` | kimi-k2.5, kimi-k2-thinking, kimi-k2-turbo-preview | AUTH_TOKEN |
+| **minimax** | `MINIMAX_API_KEY` | `https://api.minimax.io/anthropic` | MiniMax-M2.5, MiniMax-M2.5-highspeed, MiniMax-M2.1 | API_KEY |
+| **siliconflow** | `SILICONFLOW_API_KEY` | `https://api.siliconflow.cn/` | deepseek-ai/DeepSeek-V3, Qwen/Qwen3-235B-A22B, Pro/deepseek-ai/DeepSeek-R1 | API_KEY |
+| **anthropic** | `ANTHROPIC_API_KEY` | (official API) | (all Claude models) | API_KEY (or `claude login`) |
+
+**Auth Method explained:**
+- **API_KEY**: Your key is sent as `ANTHROPIC_API_KEY`. Standard Anthropic protocol.
+- **AUTH_TOKEN**: Your key is sent as `ANTHROPIC_AUTH_TOKEN`, and `ANTHROPIC_API_KEY` is cleared. Used by providers that follow the newer Anthropic auth pattern.
+
+### Check What's Configured
+
+```bash
+# See all providers, key status, and which are ready:
+claude-worker provider list
+
+# Export full config (safe, no key values):
+claude-worker provider export
+
+# Test connectivity:
+claude-worker provider verify z-ai
+
+# Import from existing cc-switch installation:
+claude-worker provider import-cc-switch
+```
+
+### Add a Custom Provider
+
+```bash
+claude-worker provider add my-provider \
+  --base-url https://api.example.com/anthropic \
+  --api-key-env MY_PROVIDER_API_KEY \
+  --models model-a model-b
+
+claude-worker provider set-key my-provider
 ```
 
 ## Running Tests
