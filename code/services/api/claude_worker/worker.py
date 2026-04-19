@@ -135,8 +135,10 @@ DEFAULT_EXECUTION_MODE = "one_shot"
 PROVIDERS_FILENAME = "providers.json"
 CONFIG_DIR_NAME = "config"
 CREDENTIALS_DB_FILENAME = "credentials.db"
+RUNTIME_DIR_NAME = ".claude-worker"
 CLAUDE_SETTINGS_DIR_NAME = ".claude"
 CLAUDE_SETTINGS_FILENAME = "settings.json"
+RUNTIME_ROOT_ENV = "CLAUDE_WORKER_HOME"
 
 
 def _utc_now() -> datetime:
@@ -152,10 +154,10 @@ def _repo_root() -> Path:
 
 
 def _default_claude_worker_root() -> Path:
-    override = os.environ.get("IKE_CLAUDE_WORKER_ROOT")
+    override = os.environ.get(RUNTIME_ROOT_ENV)
     if override:
         return Path(override).expanduser().resolve()
-    return (_repo_root().parent / "_agent-runtimes" / "claude-worker").resolve()
+    return Path.home() / RUNTIME_DIR_NAME
 
 
 def _resolve_claude_binary(preferred: str) -> str:
@@ -430,10 +432,11 @@ class CredentialStore:
         self._ensure_db()
 
     def _migrate_from_legacy_path(self) -> None:
-        """One-time migration: if new path doesn't exist but legacy ~/.claude-worker/ does, copy it."""
+        """One-time migration: if new path doesn't exist but legacy _agent-runtimes/ path does, copy it."""
         if self.db_path.exists():
             return
-        legacy = Path.home() / ".claude-worker" / CREDENTIALS_DB_FILENAME
+        # Legacy path from when runtime-root was _agent-runtimes/claude-worker/
+        legacy = _repo_root().parent / "_agent-runtimes" / "claude-worker" / CREDENTIALS_DB_FILENAME
         if legacy.exists():
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(str(legacy), str(self.db_path))
@@ -629,10 +632,11 @@ class ProviderRegistry:
         self._load()
 
     def _migrate_from_legacy_path(self) -> None:
-        """One-time migration: if new config/ path doesn't exist but old root-level one does, move it."""
+        """One-time migration: if new config/ path doesn't exist but old _agent-runtimes/ one does, move it."""
         if self.db_path.exists():
             return
-        legacy = _default_claude_worker_root() / PROVIDERS_FILENAME
+        # Legacy: _agent-runtimes/claude-worker/providers.json (before config/ subdirectory)
+        legacy = _repo_root().parent / "_agent-runtimes" / "claude-worker" / PROVIDERS_FILENAME
         if legacy.exists():
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(legacy), str(self.db_path))
@@ -1026,10 +1030,7 @@ def check_prerequisites() -> dict[str, Any]:
 
 
 def _sessions_root() -> Path:
-    override = os.environ.get("IKE_CLAUDE_WORKER_ROOT")
-    if override:
-        return Path(override).expanduser().resolve() / SESSIONS_DIR_NAME
-    return (_repo_root().parent / "_agent-runtimes" / "claude-worker" / SESSIONS_DIR_NAME).resolve()
+    return _default_claude_worker_root() / SESSIONS_DIR_NAME
 
 
 class LongRunSession:
