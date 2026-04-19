@@ -67,9 +67,41 @@ A CLI-driven Claude Code executor that wraps the `claude` CLI into a structured,
 ```
 code/services/api/
 ├── claude_worker/
-│   └── worker.py              # Complete runtime (single file)
+│   └── worker.py              # Complete runtime (single file, zero dependencies)
 └── tests/
-    └── test_claude_worker.py  # 54 tests
+    └── test_claude_worker.py  # 55 tests
+```
+
+## Runtime Directory
+
+All config and credentials live in one directory:
+
+```
+~/.claude-worker/                          # Default (no setup needed)
+├── config/
+│   └── providers.json                     # Provider definitions (auto-generated on first run)
+└── credentials.db                         # Encrypted API key storage
+
+# Or override:
+CLAUDE_WORKER_HOME=/custom/path            # All files go here instead
+```
+
+**No environment variable needed for normal use.** The default `~/.claude-worker/` works out of the box.
+
+To override (optional):
+
+```powershell
+# PowerShell — current session only
+$env:CLAUDE_WORKER_HOME = "D:\code\_agent-runtimes\claude-worker-dev"
+
+# PowerShell — permanent (user-level)
+[Environment]::SetEnvironmentVariable("CLAUDE_WORKER_HOME", "D:\custom\path", "User")
+
+# Linux/Mac — current session
+export CLAUDE_WORKER_HOME=/custom/path
+
+# Linux/Mac — permanent (add to ~/.bashrc or ~/.zshrc)
+echo 'export CLAUDE_WORKER_HOME=/custom/path' >> ~/.bashrc
 ```
 
 ## Quick Start
@@ -121,14 +153,14 @@ When a task runs, credentials are resolved in this order (first non-empty wins):
 
 ```bash
 # Option A: Store key in encrypted DB (recommended — persists across sessions)
-claude-worker provider set-key z-ai
+python -m claude_worker.worker provider set-key z-ai
 # Prompts: Enter API key for z-ai (ZAI_API_KEY): <paste your key>
 
 # Option B: Environment variable (no DB, must set every session)
 export ZAI_API_KEY=your-key-here
 
 # Then verify it works:
-claude-worker provider verify z-ai
+python -m claude_worker.worker provider verify z-ai
 ```
 
 ### Supported Providers
@@ -153,27 +185,45 @@ claude-worker provider verify z-ai
 
 ```bash
 # See all providers, key status, and which are ready:
-claude-worker provider list
+python -m claude_worker.worker provider list
 
 # Export full config (safe, no key values):
-claude-worker provider export
+python -m claude_worker.worker provider export
 
 # Test connectivity:
-claude-worker provider verify z-ai
+python -m claude_worker.worker provider verify z-ai
 
 # Import from existing cc-switch installation:
-claude-worker provider import-cc-switch
+python -m claude_worker.worker provider import-cc-switch
+
+# Reset providers.json to factory defaults:
+python -m claude_worker.worker provider reset
 ```
 
 ### Add a Custom Provider
 
 ```bash
-claude-worker provider add my-provider \
+python -m claude_worker.worker provider add my-provider \
   --base-url https://api.example.com/anthropic \
   --api-key-env MY_PROVIDER_API_KEY \
   --models model-a model-b
 
-claude-worker provider set-key my-provider
+python -m claude_worker.worker provider set-key my-provider
+```
+
+### Modify an Existing Provider
+
+Providers are stored in `~/.claude-worker/config/providers.json`. You can edit it directly:
+
+```bash
+# Change a provider's base URL or model list without touching code:
+vim ~/.claude-worker/config/providers.json
+
+# Or remove a provider you don't need:
+python -m claude_worker.worker provider remove anthropic
+
+# Undo all changes and restore defaults:
+python -m claude_worker.worker provider reset
 ```
 
 ## Running Tests
