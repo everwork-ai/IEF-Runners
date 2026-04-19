@@ -133,6 +133,7 @@ python -m claude_worker.worker session-start \
 - **Durable artifacts**: `final.json`, `stdout.txt`, `exitcode.txt`, `events.ndjson`
 - **Detached execution**: Fire-and-forget with poll/fetch/abort lifecycle
 - **CC native capabilities**: `--resume`, `--continue`, `--fork-session`, `--bare`, `--output-format stream-json`
+- **Reasoning control**: `--effort` flag controls extended thinking (low/medium/high/max), budget-based depth scaling
 
 ## Provider Management
 
@@ -165,17 +166,17 @@ python -m claude_worker.worker provider verify z-ai
 
 ### Supported Providers
 
-| Provider | Key Env Var | Base URL | Models | Auth Method |
-|----------|------------|----------|--------|-------------|
-| **z-ai** | `ZAI_API_KEY` | `https://api.z.ai/api/anthropic` | glm-4.7, glm-4.5-air | AUTH_TOKEN (key → ANTHROPIC_AUTH_TOKEN) |
-| **qwen-bailian-coding** | `DASHSCOPE_CODING_API_KEY` | `https://coding.dashscope.aliyuncs.com/apps/anthropic` | qwen3.6-plus, qwen3-coder, qwen3-coder-plus, qwen-coder-plus-latest | API_KEY (key → ANTHROPIC_API_KEY) |
-| **qwen-bailian** | `DASHSCOPE_API_KEY` | `https://dashscope.aliyuncs.com/apps/anthropic` | qwen3.6-plus, qwen3-max, qwen3-coder-plus, qwen3-coder-next, qwen-plus, qwen-turbo, qwen3.5-flash, qwen3-vl-plus | API_KEY |
-| **deepseek** | `DEEPSEEK_API_KEY` | `https://api.deepseek.com/anthropic` | deepseek-chat, deepseek-reasoner | AUTH_TOKEN |
-| **openrouter** | `OPENROUTER_API_KEY` | `https://openrouter.ai/api` | anthropic/claude-opus-4.7, anthropic/claude-sonnet-4.6, openai/gpt-4o | AUTH_TOKEN |
-| **kimi** | `MOONSHOT_API_KEY` | `https://api.moonshot.cn/anthropic` | kimi-k2.5, kimi-k2-thinking, kimi-k2-turbo-preview | AUTH_TOKEN |
-| **minimax** | `MINIMAX_API_KEY` | `https://api.minimax.io/anthropic` | MiniMax-M2.5, MiniMax-M2.5-highspeed, MiniMax-M2.1 | API_KEY |
-| **siliconflow** | `SILICONFLOW_API_KEY` | `https://api.siliconflow.cn/` | deepseek-ai/DeepSeek-V3, Qwen/Qwen3-235B-A22B, Pro/deepseek-ai/DeepSeek-R1 | API_KEY |
-| **anthropic** | `ANTHROPIC_API_KEY` | (official API) | (all Claude models) | API_KEY (or `claude login`) |
+| Provider | Key Env Var | Base URL | Models | Auth Method | Thinking |
+|----------|------------|----------|--------|-------------|----------|
+| **z-ai** | `ZAI_API_KEY` | `https://api.z.ai/api/anthropic` | glm-5.1, glm-5, glm-4.7, glm-4.5-air | AUTH_TOKEN | ✅ budget-controlled |
+| **qwen-bailian-coding** | `DASHSCOPE_CODING_API_KEY` | `https://coding.dashscope.aliyuncs.com/apps/anthropic` | qwen3.6-plus, qwen3-coder-plus, qwen3.5-plus, qwen3-coder-next, glm-5, glm-4.7, MiniMax-M2.5, kimi-k2.5 | API_KEY | ✅ default-on |
+| **qwen-bailian** | `DASHSCOPE_API_KEY` | `https://dashscope.aliyuncs.com/apps/anthropic` | qwen3.6-plus, qwen3-max, qwen3-coder-plus, qwen3-coder-next, qwen-plus, qwen-turbo, qwen3.5-flash, qwen3-vl-plus | API_KEY | ✅ default-on |
+| **deepseek** | `DEEPSEEK_API_KEY` | `https://api.deepseek.com/anthropic` | deepseek-chat, deepseek-reasoner | AUTH_TOKEN | ⚠️ unverified |
+| **openrouter** | `OPENROUTER_API_KEY` | `https://openrouter.ai/api` | anthropic/claude-opus-4.7, anthropic/claude-sonnet-4.6, openai/gpt-4o | AUTH_TOKEN | ⚠️ unverified |
+| **kimi** | `MOONSHOT_API_KEY` | `https://api.moonshot.cn/anthropic` | kimi-k2.5, kimi-k2-thinking, kimi-k2-turbo-preview | AUTH_TOKEN | ⚠️ unverified |
+| **minimax** | `MINIMAX_API_KEY` | `https://api.minimax.io/anthropic` | MiniMax-M2.5, MiniMax-M2.5-highspeed, MiniMax-M2.1 | API_KEY | ⚠️ unverified |
+| **siliconflow** | `SILICONFLOW_API_KEY` | `https://api.siliconflow.cn/` | deepseek-ai/DeepSeek-V3, Qwen/Qwen3-235B-A22B, Pro/deepseek-ai/DeepSeek-R1 | API_KEY | ⚠️ unverified |
+| **anthropic** | `ANTHROPIC_API_KEY` | (official API) | (all Claude models) | API_KEY (or `claude login`) | ✅ native |
 
 **Auth Method explained:**
 - **API_KEY**: Your key is sent as `ANTHROPIC_API_KEY`. Standard Anthropic protocol.
@@ -224,6 +225,42 @@ python -m claude_worker.worker provider remove anthropic
 
 # Undo all changes and restore defaults:
 python -m claude_worker.worker provider reset
+```
+
+## Reasoning Control
+
+The `--effort` flag controls extended thinking (reasoning) depth. No separate toggle needed — `--effort` is both the switch and the depth control.
+
+```
+--effort low      → No extended thinking, direct response
+--effort medium   → Light thinking
+--effort high     → Deep thinking (default)
+--effort max      → Maximum thinking budget
+```
+
+**Verified behavior (2026-04-19):**
+
+| Provider | Without thinking param | With thinking param | Budget scaling |
+|----------|----------------------|--------------------|----|
+| **z-ai** | No thinking block, direct answer | ✅ Thinking block returned | budget 10K→1K chars, 32K→2K chars |
+| **qwen-bailian-coding** | Thinking block by default | ✅ Thinking block returned | budget controls depth |
+
+CC CLI maps `--effort` → `thinking.budget_tokens` in the Anthropic API request. Providers that don't support the `thinking` parameter gracefully degrade to non-reasoning mode.
+
+```bash
+# Use max reasoning for complex tasks on flagship models:
+python -m claude_worker.worker start \
+  --kind coding \
+  --prompt "Design a fault-tolerant caching strategy" \
+  --provider z-ai \
+  --effort max
+
+# Quick answer without reasoning:
+python -m claude_worker.worker start \
+  --kind coding \
+  --prompt "Fix the typo in README" \
+  --provider qwen-bailian-coding \
+  --effort low
 ```
 
 ## Running Tests

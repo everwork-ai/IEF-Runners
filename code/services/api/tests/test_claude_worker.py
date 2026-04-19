@@ -1257,26 +1257,26 @@ class ClaudeWorkerRuntimeTest(unittest.TestCase):
     def test_provider_registry_resolves_model_to_provider(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             registry = ProviderRegistry(db_path=Path(tmpdir) / "providers.json")
-        # qwen3.6-plus exists in both qwen-bailian and qwen-bailian-coding; first match wins (qwen-bailian)
+        # qwen3.6-plus exists in both qwen-bailian-coding (priority=0) and qwen-bailian (priority=5); bailian-coding wins
         provider = registry.resolve_provider_for_model("qwen3.6-plus")
         self.assertIsNotNone(provider)
-        self.assertEqual(provider.name, "qwen-bailian")
+        self.assertEqual(provider.name, "qwen-bailian-coding")
         # deepseek-chat resolves to deepseek
         ds = registry.resolve_provider_for_model("deepseek-chat")
         self.assertIsNotNone(ds)
         self.assertEqual(ds.name, "deepseek")
-        # kimi-k2.5 resolves to kimi
+        # kimi-k2.5 exists in both qwen-bailian-coding (priority=0) and kimi (priority=10); bailian-coding wins
         kimi = registry.resolve_provider_for_model("kimi-k2.5")
         self.assertIsNotNone(kimi)
-        self.assertEqual(kimi.name, "kimi")
-        # glm-4.7 resolves to z-ai
+        self.assertEqual(kimi.name, "qwen-bailian-coding")
+        # glm-4.7 exists in both qwen-bailian-coding (priority=0) and z-ai (priority=10); bailian-coding wins
         glm = registry.resolve_provider_for_model("glm-4.7")
         self.assertIsNotNone(glm)
-        self.assertEqual(glm.name, "z-ai")
-        # MiniMax-M2.5 resolves to minimax
+        self.assertEqual(glm.name, "qwen-bailian-coding")
+        # MiniMax-M2.5 exists in both qwen-bailian-coding (priority=0) and minimax (priority=10); bailian-coding wins
         mm = registry.resolve_provider_for_model("MiniMax-M2.5")
         self.assertIsNotNone(mm)
-        self.assertEqual(mm.name, "minimax")
+        self.assertEqual(mm.name, "qwen-bailian-coding")
         unknown = registry.resolve_provider_for_model("nonexistent-model-xyz")
         self.assertIsNone(unknown)
 
@@ -1329,7 +1329,7 @@ class ClaudeWorkerRuntimeTest(unittest.TestCase):
                         WorkerPacket(kind="coding", prompt="Auto switch", cwd=tmpdir, model="qwen3.6-plus")
                     )
                     meta = json.loads((record.run_dir / "meta.json").read_text(encoding="utf-8"))
-                    self.assertEqual(meta["provider"], "qwen-bailian")
+                    self.assertEqual(meta["provider"], "qwen-bailian-coding")
                     self.assertIsNotNone(meta["provider_switch"])
 
     def test_start_with_explicit_provider(self) -> None:

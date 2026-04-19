@@ -532,6 +532,7 @@ class ProviderConfig:
     models: list[str] | None = None
     auth_token_env: str | None = None
     notes: str | None = None
+    priority: int = 10  # Lower = higher priority for model resolution. Bailian Coding (0) > Bailian General (5) > Dedicated (10).
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {"name": self.name, "api_key_env": self.api_key_env}
@@ -543,6 +544,8 @@ class ProviderConfig:
             d["auth_token_env"] = self.auth_token_env
         if self.notes is not None:
             d["notes"] = self.notes
+        if self.priority != 10:  # 10 is default; only write when explicitly set to something else
+            d["priority"] = self.priority
         return d
 
     @classmethod
@@ -554,6 +557,7 @@ class ProviderConfig:
             models=data.get("models"),
             auth_token_env=data.get("auth_token_env"),
             notes=data.get("notes"),
+            priority=data.get("priority", 0),
         )
 
 
@@ -585,19 +589,21 @@ _DEFAULT_PROVIDERS: list[ProviderConfig] = [
         base_url="https://dashscope.aliyuncs.com/apps/anthropic",
         models=["qwen3.6-plus", "qwen3-max", "qwen3-coder-plus", "qwen3-coder-next", "qwen-plus", "qwen-turbo", "qwen3.5-flash", "qwen3-vl-plus"],
         notes="Alibaba Cloud Bailian pay-per-use (Anthropic-compatible). Set DASHSCOPE_API_KEY. Also supports third-party models: kimi-k2.5, glm-4.7, MiniMax-M2.5.",
+        priority=5,  # Aggregator general plan: lower priority than Coding Plan
     ),
     ProviderConfig(
         name="qwen-bailian-coding",
         api_key_env="DASHSCOPE_CODING_API_KEY",
         base_url="https://coding.dashscope.aliyuncs.com/apps/anthropic",
-        models=["qwen3.6-plus", "qwen3-coder", "qwen3-coder-plus", "qwen-coder-plus-latest"],
-        notes="Alibaba Cloud Bailian Coding Plan (Anthropic-compatible). Use Coding Plan API Key (sk-sp- prefix). Fixed monthly fee, coding tools only.",
+        models=["qwen3.6-plus", "qwen3-coder-plus", "qwen3.5-plus", "qwen3-coder-next", "glm-5", "glm-4.7", "MiniMax-M2.5", "kimi-k2.5"],
+        notes="Alibaba Cloud Bailian Coding Plan (Anthropic-compatible). Use Coding Plan API Key (sk-sp- prefix). Fixed monthly fee. Supports Qwen, GLM, MiniMax, and Kimi flagship models.",
+        priority=0,  # Primary multi-vendor endpoint: highest resolution priority
     ),
     ProviderConfig(
         name="z-ai",
         api_key_env="ZAI_API_KEY",
         base_url="https://api.z.ai/api/anthropic",
-        models=["glm-4.7", "glm-4.5-air"],
+        models=["glm-5.1", "glm-5", "glm-4.7", "glm-4.5-air"],
         auth_token_env="ZAI_API_KEY",
         notes="Z.AI (Zhipu/GLM) Coding Plan (Anthropic-compatible). Set ZAI_API_KEY; ANTHROPIC_AUTH_TOKEN is set to same value; ANTHROPIC_API_KEY is cleared.",
     ),
@@ -688,10 +694,16 @@ class ProviderRegistry:
         return False
 
     def resolve_provider_for_model(self, model: str) -> ProviderConfig | None:
-        for provider in self._providers.values():
-            if provider.models and model in provider.models:
-                return provider
-        return None
+        """Find the best provider for a model. Bailian Coding (priority=0) > Bailian General (5) > Dedicated (10)."""
+        candidates = [
+            p for p in self._providers.values()
+            if p.models and model in p.models
+        ]
+        if not candidates:
+            return None
+        # Lower priority number = higher precedence (dedicated before aggregator)
+        candidates.sort(key=lambda p: p.priority)
+        return candidates[0]
 
     def apply_provider(self, provider: ProviderConfig) -> dict[str, str]:
         """Resolve credentials for a provider and produce env vars to write to settings.json.
