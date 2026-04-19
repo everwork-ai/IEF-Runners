@@ -1730,6 +1730,7 @@ class ClaudeWorkerRuntime:
         )
         returncode = self._process_returncode(record.process)
         status = "succeeded" if returncode == 0 else "failed"
+        stdout, stderr = self._read_wait_artifacts(record, stdout or "", stderr or "")
         return self._finalize(record, stdout or "", stderr or "", status=status, returncode=returncode)
 
     def abort(self, run_id: str) -> dict[str, Any]:
@@ -1815,6 +1816,10 @@ class ClaudeWorkerRuntime:
         }
 
     def _start_process(self, run_dir: Path, command: list[str], packet: WorkerPacket) -> Any:
+        prompt_path = run_dir / PROMPT_FILENAME
+        stdout_path = run_dir / STDOUT_FILENAME
+        stderr_path = run_dir / STDERR_FILENAME
+        exitcode_path = run_dir / EXITCODE_FILENAME
         if self.launcher is not subprocess.Popen:
             return self.launcher(
                 command,
@@ -1823,12 +1828,12 @@ class ClaudeWorkerRuntime:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
+                run_dir=run_dir,
+                prompt_path=prompt_path,
+                stdout_path=stdout_path,
+                stderr_path=stderr_path,
+                exitcode_path=exitcode_path,
             )
-
-        prompt_path = run_dir / PROMPT_FILENAME
-        stdout_path = run_dir / STDOUT_FILENAME
-        stderr_path = run_dir / STDERR_FILENAME
-        exitcode_path = run_dir / EXITCODE_FILENAME
         # prompt.txt is already written by start() before calling this method.
         # The wrapper script reads it from disk, ensuring durable prompt delivery
         # even if the owner process dies after spawning the child.
@@ -1903,6 +1908,14 @@ class ClaudeWorkerRuntime:
             return int(path.read_text(encoding="utf-8").strip())
         except (TypeError, ValueError):
             return None
+
+    def _read_wait_artifacts(self, record: RunRecord, stdout: str, stderr: str) -> tuple[str, str]:
+        artifact_paths = self._detached_artifact_paths(record.run_dir)
+        if not stdout:
+            stdout = _read_text_if_exists(artifact_paths["stdout"])
+        if not stderr:
+            stderr = _read_text_if_exists(artifact_paths["stderr"])
+        return stdout, stderr
 
     def _process_exists(self, pid: Any) -> bool:
         if not isinstance(pid, int) or pid <= 0:

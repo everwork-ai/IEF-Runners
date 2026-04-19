@@ -185,6 +185,49 @@ class ClaudeWorkerRuntimeTest(unittest.TestCase):
         self.assertEqual(normalized["files_changed"], ["services/api/claude_worker/worker.py"])
         self.assertEqual(normalized["validation_run"], "python -m unittest tests.test_claude_worker")
 
+    def test_wait_reads_structured_output_from_artifact_files_when_wrapper_stdout_is_empty(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            def launcher(command, **kwargs):
+                stdout_path = Path(kwargs["stdout_path"])
+                stderr_path = Path(kwargs["stderr_path"])
+                exitcode_path = Path(kwargs["exitcode_path"])
+                stdout_path.write_text(
+                    json.dumps(
+                        {
+                            "summary": "Artifact-backed result",
+                            "files_changed": ["services/api/conversation_runtime/p0.py"],
+                            "validation_run": "python -m unittest tests.test_conversation_runtime_route",
+                            "known_risks": ["Read-only validation packet."],
+                            "recommendation": "accept_with_changes",
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                stderr_path.write_text("", encoding="utf-8")
+                exitcode_path.write_text("0", encoding="utf-8")
+                return FakeProcess("", "", 0)
+
+            runtime = ClaudeWorkerRuntime(run_root=tmpdir, launcher=launcher)
+            record = runtime.start(
+                WorkerPacket(
+                    kind="coding",
+                    prompt="Validate artifact-backed wait finalization.",
+                    cwd=tmpdir,
+                    task_id="artifact-backed-wait",
+                    title="Artifact-backed wait finalization",
+                )
+            )
+
+            result = runtime.wait(record.run_id)
+
+            self.assertEqual(result["summary"], "Artifact-backed result")
+            self.assertEqual(result["files_changed"], ["services/api/conversation_runtime/p0.py"])
+            self.assertEqual(
+                result["validation_run"],
+                "python -m unittest tests.test_conversation_runtime_route",
+            )
+            self.assertEqual(result["recommendation"], "accept_with_changes")
+
     def test_abort_marks_run_aborted(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             class HangingProcess(FakeProcess):
