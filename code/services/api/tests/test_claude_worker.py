@@ -31,7 +31,7 @@ from claude_worker.worker import (
     CredentialStore,
     check_prerequisites,
     verify_provider_endpoint,
-    BUILTIN_PROVIDERS,
+    _DEFAULT_PROVIDERS,
 )
 
 
@@ -1173,8 +1173,13 @@ class ClaudeWorkerRuntimeTest(unittest.TestCase):
             self.assertIn('"execution_mode": "interactive"', events)
 
     def test_provider_registry_lists_builtins(self) -> None:
-        registry = ProviderRegistry(db_path=Path(tempfile.gettempdir()) / "test-providers.json")
-        providers = registry.list_providers()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "providers.json"
+            # On first access, providers.json is auto-generated from defaults
+            self.assertFalse(db_path.exists())
+            registry = ProviderRegistry(db_path=db_path)
+            self.assertTrue(db_path.exists())  # auto-created
+            providers = registry.list_providers()
         names = [p.name for p in providers]
         self.assertIn("anthropic", names)
         self.assertIn("deepseek", names)
@@ -1195,14 +1200,32 @@ class ClaudeWorkerRuntimeTest(unittest.TestCase):
             retrieved = registry.get_provider("test-provider")
             self.assertIsNotNone(retrieved)
             self.assertEqual(retrieved.base_url, "https://api.test.com/v1")
-            # Remove
+            # Remove custom provider
             self.assertTrue(registry.remove_provider("test-provider"))
             self.assertIsNone(registry.get_provider("test-provider"))
-            # Cannot remove builtin
-            self.assertFalse(registry.remove_provider("anthropic"))
+            # Can also remove any provider (all live in providers.json now)
+            self.assertTrue(registry.remove_provider("anthropic"))
+
+    def test_provider_registry_reset(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "providers.json"
+            registry = ProviderRegistry(db_path=db_path)
+            # Remove a default provider
+            registry.remove_provider("anthropic")
+            self.assertIsNone(registry.get_provider("anthropic"))
+            # Add a custom one
+            registry.add_provider(ProviderConfig(name="my-custom", api_key_env="MY_KEY"))
+            self.assertIsNotNone(registry.get_provider("my-custom"))
+            # Reset — should delete file and re-seed
+            registry.db_path.unlink()
+            registry._providers.clear()
+            registry._seed_from_defaults()
+            self.assertIsNotNone(registry.get_provider("anthropic"))  # back
+            self.assertIsNone(registry.get_provider("my-custom"))     # gone
 
     def test_provider_registry_resolves_model_to_provider(self) -> None:
-        registry = ProviderRegistry(db_path=Path(tempfile.gettempdir()) / "test-providers2.json")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            registry = ProviderRegistry(db_path=Path(tmpdir) / "providers.json")
         # qwen3.6-plus exists in both qwen-bailian and qwen-bailian-coding; first match wins (qwen-bailian)
         provider = registry.resolve_provider_for_model("qwen3.6-plus")
         self.assertIsNotNone(provider)

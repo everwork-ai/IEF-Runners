@@ -547,7 +547,7 @@ class ProviderConfig:
         )
 
 
-BUILTIN_PROVIDERS: list[ProviderConfig] = [
+_DEFAULT_PROVIDERS: list[ProviderConfig] = [
     ProviderConfig(
         name="anthropic",
         api_key_env="ANTHROPIC_API_KEY",
@@ -624,23 +624,30 @@ class ProviderRegistry:
         self._load()
 
     def _load(self) -> None:
-        for p in BUILTIN_PROVIDERS:
+        # providers.json is the single source of truth.
+        # If it doesn't exist yet, auto-generate from _DEFAULT_PROVIDERS.
+        if not self.db_path.exists():
+            self._seed_from_defaults()
+        try:
+            data = _read_json(self.db_path)
+            for entry in _as_list(data.get("providers", [])):
+                if isinstance(entry, dict) and "name" in entry:
+                    pc = ProviderConfig.from_dict(entry)
+                    self._providers[pc.name] = pc
+        except (json.JSONDecodeError, ValueError, TypeError):
+            # Corrupted file — fall back to defaults
+            self._seed_from_defaults()
+
+    def _seed_from_defaults(self) -> None:
+        """Auto-generate providers.json from embedded defaults on first run."""
+        for p in _DEFAULT_PROVIDERS:
             self._providers[p.name] = p
-        if self.db_path.exists():
-            try:
-                data = _read_json(self.db_path)
-                for entry in _as_list(data.get("providers", [])):
-                    if isinstance(entry, dict) and "name" in entry:
-                        pc = ProviderConfig.from_dict(entry)
-                        self._providers[pc.name] = pc
-            except (json.JSONDecodeError, ValueError, TypeError):
-                pass
+        self._save()
 
     def _save(self) -> None:
         _ensure_parent(self.db_path)
-        entries = [self._providers[k].to_dict() for k in sorted(self._providers) if k not in {p.name for p in BUILTIN_PROVIDERS}]
-        builtin_names = [p.name for p in BUILTIN_PROVIDERS]
-        _write_json(self.db_path, {"builtin_providers": builtin_names, "custom_providers": entries})
+        entries = [self._providers[k].to_dict() for k in sorted(self._providers)]
+        _write_json(self.db_path, {"providers": entries})
 
     def list_providers(self) -> list[ProviderConfig]:
         return list(self._providers.values())
@@ -653,7 +660,7 @@ class ProviderRegistry:
         self._save()
 
     def remove_provider(self, name: str) -> bool:
-        if name in self._providers and name not in {p.name for p in BUILTIN_PROVIDERS}:
+        if name in self._providers:
             del self._providers[name]
             self._save()
             return True
@@ -2290,8 +2297,10 @@ def build_parser() -> argparse.ArgumentParser:
     provider_add.add_argument("--models", nargs="*", default=None, help="Model IDs supported by this provider")
     provider_add.add_argument("--notes", default=None, help="Notes about this provider")
 
-    provider_remove = provider_sub.add_parser("remove", help="Remove a custom provider")
+    provider_remove = provider_sub.add_parser("remove", help="Remove a provider from config")
     provider_remove.add_argument("name", help="Provider name to remove")
+
+    provider_reset = provider_sub.add_parser("reset", help="Reset providers.json to factory defaults")
 
     provider_verify = provider_sub.add_parser("verify", help="Verify provider endpoint connectivity and auth")
     provider_verify.add_argument("name", nargs="?", default=None, help="Provider name to verify (omit to verify all)")
@@ -2405,8 +2414,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             if removed:
                 print(f"Provider '{args.name}' removed.")
                 return 0
-            print(f"Cannot remove provider '{args.name}' (not found or is builtin).", file=sys.stderr)
+            print(f"Provider '{args.name}' not found.", file=sys.stderr)
             return 1
+
+        if args.provider_command == "reset":
+            # Delete providers.json and re-seed from defaults
+            if registry.db_path.exists():
+                registry.db_path.unlink()
+            registry._providers.clear()
+            registry._seed_from_defaults()
+            print(f"Providers reset to defaults at {registry.db_path}")
+            return 0
 
         if args.provider_command == "verify":
             if args.name:
