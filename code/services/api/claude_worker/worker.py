@@ -2306,6 +2306,9 @@ def build_parser() -> argparse.ArgumentParser:
     provider_import = provider_sub.add_parser("import-cc-switch", help="Import credentials from cc-switch DB into worker config")
     provider_import.add_argument("--dry-run", action="store_true", default=False, help="Show what would be imported without making changes")
 
+    provider_export = provider_sub.add_parser("export", help="Export full provider config as JSON (key status included, key values hidden)")
+    provider_export.add_argument("--output", default=None, help="Write to file instead of stdout")
+
     return parser
 
 
@@ -2340,20 +2343,39 @@ def main(argv: Sequence[str] | None = None) -> int:
         registry = ProviderRegistry()
         if args.provider_command == "list":
             providers = registry.list_providers()
+            cred_store = registry.cred_store
             if getattr(args, "json", False):
-                print(json.dumps([p.to_dict() for p in providers], ensure_ascii=False, indent=2))
+                output = []
+                for p in providers:
+                    d = p.to_dict()
+                    d["key_status"] = {
+                        "api_key": "SET" if cred_store.get_credential(p.name, "api_key") or os.environ.get(p.api_key_env, "") else "NOT SET",
+                        "auth_token": "SET" if (p.auth_token_env and (cred_store.get_credential(p.name, "auth_token") or os.environ.get(p.auth_token_env, ""))) else ("N/A" if not p.auth_token_env else "NOT SET"),
+                    }
+                    output.append(d)
+                print(json.dumps(output, ensure_ascii=False, indent=2))
             else:
                 print("Available providers:\n")
                 for p in providers:
-                    key_status = "key set" if os.environ.get(p.api_key_env, "") else "key NOT set"
+                    stored_key = cred_store.get_credential(p.name, "api_key")
+                    env_key = os.environ.get(p.api_key_env, "")
+                    has_key = bool(stored_key or env_key)
+                    key_source = "CredentialStore" if stored_key else ("env var" if env_key else "NOT SET")
+                    stored_token = cred_store.get_credential(p.name, "auth_token") if p.auth_token_env else None
+                    env_token = os.environ.get(p.auth_token_env, "") if p.auth_token_env else ""
+                    has_token = bool(stored_token or env_token)
                     models = ", ".join(p.models) if p.models else "(all Claude models)"
                     url = p.base_url or "(official API)"
                     print(f"  {p.name}")
-                    print(f"    base_url: {url}")
-                    print(f"    models: {models}")
-                    print(f"    api_key: {p.api_key_env} [{key_status}]")
+                    print(f"    base_url:    {url}")
+                    print(f"    models:      {models}")
+                    print(f"    api_key:     {p.api_key_env} [{key_source}]")
+                    if p.auth_token_env:
+                        token_source = "CredentialStore" if stored_token else ("env var" if env_token else "NOT SET")
+                        print(f"    auth_token:  {p.auth_token_env} [{token_source}]")
+                    print(f"    ready:       {'YES' if has_key else 'NO - run: claude-worker provider set-key ' + p.name}")
                     if p.notes:
-                        print(f"    notes: {p.notes}")
+                        print(f"    notes:       {p.notes}")
                     print()
             return 0
 
@@ -2501,6 +2523,40 @@ def main(argv: Sequence[str] | None = None) -> int:
                     print(f"  IMPORTED {cc_name} → {mapped_name}")
             if not args.dry_run and imported:
                 print(f"\nImported {len(imported)} provider(s) into {registry.cred_store.db_path}")
+            return 0
+
+        if args.provider_command == "export":
+            # Export full provider config with key status (no actual key values)
+            providers = registry.list_providers()
+            cred_store = registry.cred_store
+            output = {
+                "_comment": "Claude Worker Provider Configuration — safe to share (no key values)",
+                "_setup_instructions": {
+                    "1_set_api_key": "claude-worker provider set-key <name>",
+                    "2_or_set_env_var": "export <api_key_env>=<your-key>",
+                    "3_verify": "claude-worker provider verify <name>",
+                    "4_run_task": "claude-worker start --kind coding --prompt '...' --provider <name>",
+                },
+                "providers": [],
+            }
+            for p in providers:
+                stored_key = cred_store.get_credential(p.name, "api_key")
+                env_key = os.environ.get(p.api_key_env, "")
+                stored_token = cred_store.get_credential(p.name, "auth_token") if p.auth_token_env else None
+                env_token = os.environ.get(p.auth_token_env, "") if p.auth_token_env else ""
+                entry = p.to_dict()
+                entry["key_status"] = {
+                    "api_key": "SET" if (stored_key or env_key) else "NOT SET",
+                    "auth_token": "SET" if (p.auth_token_env and (stored_token or env_token)) else ("N/A" if not p.auth_token_env else "NOT SET"),
+                }
+                output["providers"].append(entry)
+            text = json.dumps(output, ensure_ascii=False, indent=2)
+            if getattr(args, "output", None):
+                out_path = Path(args.output)
+                out_path.write_text(text, encoding="utf-8")
+                print(f"Exported to {out_path}")
+            else:
+                print(text)
             return 0
 
     runtime = ClaudeWorkerRuntime(

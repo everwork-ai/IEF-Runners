@@ -4,6 +4,7 @@ __pycache__/
 .runtime/
 .qoder/
 _agent-runtimes/
+credentials.db
 **/.runtime/
 code/**/__pycache__/
 code/**/*.pyc

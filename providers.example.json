@@ -1,0 +1,148 @@
+{
+  "_comment": "Claude Worker Provider Configuration - safe to share, no key values included",
+  "_setup_instructions": {
+    "1_set_api_key": "claude-worker provider set-key <name>",
+    "2_or_set_env_var": "export <api_key_env>=<your-key>",
+    "3_verify": "claude-worker provider verify <name>",
+    "4_run_task": "claude-worker start --kind coding --prompt ... --provider <name>"
+  },
+  "providers": [
+    {
+      "name": "anthropic",
+      "api_key_env": "ANTHROPIC_API_KEY",
+      "notes": "Anthropic official API. Uses claude login or ANTHROPIC_API_KEY env var.",
+      "key_status": {
+        "api_key": "NOT SET",
+        "auth_token": "N/A"
+      }
+    },
+    {
+      "name": "deepseek",
+      "api_key_env": "DEEPSEEK_API_KEY",
+      "base_url": "https://api.deepseek.com/anthropic",
+      "models": [
+        "deepseek-chat",
+        "deepseek-reasoner"
+      ],
+      "auth_token_env": "DEEPSEEK_API_KEY",
+      "notes": "DeepSeek Anthropic-compatible endpoint. Set DEEPSEEK_API_KEY; ANTHROPIC_AUTH_TOKEN is set to same value; ANTHROPIC_API_KEY is cleared.",
+      "key_status": {
+        "api_key": "NOT SET",
+        "auth_token": "NOT SET"
+      }
+    },
+    {
+      "name": "openrouter",
+      "api_key_env": "OPENROUTER_API_KEY",
+      "base_url": "https://openrouter.ai/api",
+      "models": [
+        "anthropic/claude-opus-4.7",
+        "anthropic/claude-sonnet-4.6",
+        "openai/gpt-4o"
+      ],
+      "auth_token_env": "OPENROUTER_API_KEY",
+      "notes": "OpenRouter aggregator (Anthropic Skin). Set OPENROUTER_API_KEY; ANTHROPIC_AUTH_TOKEN is set to same value; ANTHROPIC_API_KEY is cleared.",
+      "key_status": {
+        "api_key": "NOT SET",
+        "auth_token": "NOT SET"
+      }
+    },
+    {
+      "name": "qwen-bailian",
+      "api_key_env": "DASHSCOPE_API_KEY",
+      "base_url": "https://dashscope.aliyuncs.com/apps/anthropic",
+      "models": [
+        "qwen3.6-plus",
+        "qwen3-max",
+        "qwen3-coder-plus",
+        "qwen3-coder-next",
+        "qwen-plus",
+        "qwen-turbo",
+        "qwen3.5-flash",
+        "qwen3-vl-plus"
+      ],
+      "notes": "Alibaba Cloud Bailian pay-per-use (Anthropic-compatible). Set DASHSCOPE_API_KEY. Also supports third-party models: kimi-k2.5, glm-4.7, MiniMax-M2.5.",
+      "key_status": {
+        "api_key": "NOT SET",
+        "auth_token": "N/A"
+      }
+    },
+    {
+      "name": "qwen-bailian-coding",
+      "api_key_env": "DASHSCOPE_CODING_API_KEY",
+      "base_url": "https://coding.dashscope.aliyuncs.com/apps/anthropic",
+      "models": [
+        "qwen3.6-plus",
+        "qwen3-coder",
+        "qwen3-coder-plus",
+        "qwen-coder-plus-latest"
+      ],
+      "notes": "Alibaba Cloud Bailian Coding Plan (Anthropic-compatible). Use Coding Plan API Key (sk-sp- prefix). Fixed monthly fee, coding tools only.",
+      "key_status": {
+        "api_key": "NOT SET",
+        "auth_token": "N/A"
+      }
+    },
+    {
+      "name": "z-ai",
+      "api_key_env": "ZAI_API_KEY",
+      "base_url": "https://api.z.ai/api/anthropic",
+      "models": [
+        "glm-4.7",
+        "glm-4.5-air"
+      ],
+      "auth_token_env": "ZAI_API_KEY",
+      "notes": "Z.AI (Zhipu/GLM) Coding Plan (Anthropic-compatible). Set ZAI_API_KEY; ANTHROPIC_AUTH_TOKEN is set to same value; ANTHROPIC_API_KEY is cleared.",
+      "key_status": {
+        "api_key": "NOT SET",
+        "auth_token": "NOT SET"
+      }
+    },
+    {
+      "name": "kimi",
+      "api_key_env": "MOONSHOT_API_KEY",
+      "base_url": "https://api.moonshot.cn/anthropic",
+      "models": [
+        "kimi-k2.5",
+        "kimi-k2-thinking",
+        "kimi-k2-turbo-preview"
+      ],
+      "auth_token_env": "MOONSHOT_API_KEY",
+      "notes": "Moonshot Kimi (Anthropic-compatible). Set MOONSHOT_API_KEY; ANTHROPIC_AUTH_TOKEN is set to same value; ANTHROPIC_API_KEY is cleared.",
+      "key_status": {
+        "api_key": "NOT SET",
+        "auth_token": "NOT SET"
+      }
+    },
+    {
+      "name": "minimax",
+      "api_key_env": "MINIMAX_API_KEY",
+      "base_url": "https://api.minimax.io/anthropic",
+      "models": [
+        "MiniMax-M2.5",
+        "MiniMax-M2.5-highspeed",
+        "MiniMax-M2.1"
+      ],
+      "notes": "MiniMax (Anthropic-compatible). Set MINIMAX_API_KEY.",
+      "key_status": {
+        "api_key": "NOT SET",
+        "auth_token": "N/A"
+      }
+    },
+    {
+      "name": "siliconflow",
+      "api_key_env": "SILICONFLOW_API_KEY",
+      "base_url": "https://api.siliconflow.cn/",
+      "models": [
+        "deepseek-ai/DeepSeek-V3",
+        "Qwen/Qwen3-235B-A22B",
+        "Pro/deepseek-ai/DeepSeek-R1"
+      ],
+      "notes": "SiliconFlow (Anthropic-compatible endpoint). Set SILICONFLOW_API_KEY.",
+      "key_status": {
+        "api_key": "NOT SET",
+        "auth_token": "N/A"
+      }
+    }
+  ]
+}
