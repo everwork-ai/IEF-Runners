@@ -67,7 +67,8 @@ class FakeProcess:
 class ClaudeWorkerRuntimeTest(unittest.TestCase):
     def test_default_run_root_is_externalized(self) -> None:
         root = _default_claude_worker_root()
-        self.assertTrue(str(root).endswith(".claude-worker"), f"Expected ~/.claude-worker, got {root}")
+        expected = Path(os.environ["CLAUDE_WORKER_HOME"]).resolve() if os.environ.get("CLAUDE_WORKER_HOME") else (Path.home() / ".claude-worker").resolve()
+        self.assertEqual(root, expected)
 
     def _run_cli(self, args: list[str]) -> dict[str, object]:
         command = [sys.executable, "-m", "claude_worker", *args]

@@ -91,17 +91,17 @@ CLAUDE_WORKER_HOME=/custom/path            # All files go here instead
 To override (optional):
 
 ```powershell
-# PowerShell — current session only
-$env:CLAUDE_WORKER_HOME = "D:\code\_agent-runtimes\claude-worker-dev"
+# PowerShell — current session only (example path)
+$env:CLAUDE_WORKER_HOME = "C:\Users\you\.claude-worker-dev"
 
 # PowerShell — permanent (user-level)
-[Environment]::SetEnvironmentVariable("CLAUDE_WORKER_HOME", "D:\custom\path", "User")
+[Environment]::SetEnvironmentVariable("CLAUDE_WORKER_HOME", "C:\Users\you\.claude-worker-dev", "User")
 
-# Linux/Mac — current session
-export CLAUDE_WORKER_HOME=/custom/path
+# Linux/Mac — current session (example path)
+export CLAUDE_WORKER_HOME=/tmp/claude-worker-dev
 
 # Linux/Mac — permanent (add to ~/.bashrc or ~/.zshrc)
-echo 'export CLAUDE_WORKER_HOME=/custom/path' >> ~/.bashrc
+echo 'export CLAUDE_WORKER_HOME=$HOME/.claude-worker-dev' >> ~/.bashrc
 ```
 
 ## Quick Start
