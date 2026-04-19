@@ -2396,7 +2396,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     if p.auth_token_env:
                         token_source = "CredentialStore" if stored_token else ("env var" if env_token else "NOT SET")
                         print(f"    auth_token:  {p.auth_token_env} [{token_source}]")
-                    print(f"    ready:       {'YES' if has_key else 'NO - run: claude-worker provider set-key ' + p.name}")
+                    print(f"    ready:       {'YES' if (has_key or has_token) else 'NO - run: claude-worker provider set-key ' + p.name}")
                     if p.notes:
                         print(f"    notes:       {p.notes}")
                     print()
