@@ -963,6 +963,37 @@ class ClaudeWorkerRuntimeTest(unittest.TestCase):
             events = (record.run_dir / "events.ndjson").read_text(encoding="utf-8")
             self.assertIn('"event": "prompt_delivery_verified"', events)
 
+    def test_effort_flag_passed_to_cc_command(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            launched = {}
+
+            def launcher(command, **kwargs):
+                launched["command"] = command
+                return FakeProcess('{"summary":"ok","files_changed":[],"validation_run":"","known_risks":[],"recommendation":"accept"}')
+
+            # Default effort
+            runtime = ClaudeWorkerRuntime(run_root=tmpdir, launcher=launcher)
+            record = runtime.start(
+                WorkerPacket(kind="coding", prompt="effort test", cwd=tmpdir, execution_mode="one_shot")
+            )
+            self.assertIn("--effort", launched["command"])
+            idx = launched["command"].index("--effort")
+            self.assertEqual(launched["command"][idx + 1], "high")
+            # Verify effort in meta.json
+            meta = json.loads((record.run_dir / "meta.json").read_text(encoding="utf-8"))
+            self.assertEqual(meta["effort"], "high")
+
+            # Max effort
+            launched.clear()
+            record2 = runtime.start(
+                WorkerPacket(kind="coding", prompt="max effort test", cwd=tmpdir, execution_mode="one_shot", effort="max")
+            )
+            self.assertIn("--effort", launched["command"])
+            idx = launched["command"].index("--effort")
+            self.assertEqual(launched["command"][idx + 1], "max")
+            meta2 = json.loads((record2.run_dir / "meta.json").read_text(encoding="utf-8"))
+            self.assertEqual(meta2["effort"], "max")
+
     def test_execution_mode_one_shot_uses_p_flag(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             launched = {}

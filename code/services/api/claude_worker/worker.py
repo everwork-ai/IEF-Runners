@@ -118,6 +118,8 @@ from typing import Any, Callable, Iterable, Literal, Sequence
 DEFAULT_MODEL = "qwen3.6-plus"
 DEFAULT_PERMISSION_MODE = "bypassPermissions"
 DEFAULT_REASONING_MODE = "high"
+VALID_EFFORT_LEVELS = ("low", "medium", "high", "max")
+DEFAULT_EFFORT = "high"
 DEFAULT_SANDBOX_KIND = "claude_worker_run_root"
 DEFAULT_WAIT_TIMEOUT_SECONDS = 600
 DEFAULT_DETACHED_WAIT_TIMEOUT_SECONDS = 5
@@ -253,6 +255,7 @@ def _load_packet_from_meta(meta: Any, default_model: str, default_permission_mod
         workspace_root=packet_meta.get("workspace_root", meta.get("workspace_root")),
         runtime_root=packet_meta.get("runtime_root", meta.get("runtime_root")),
         environment_mode=packet_meta.get("environment_mode", meta.get("environment_mode")),
+        effort=packet_meta.get("effort", meta.get("effort", DEFAULT_EFFORT)),
     )
 
 
@@ -1109,6 +1112,10 @@ class LongRunSession:
             command.append("--bare")
         if self.packet.resume_session:
             command.extend(["--resume", self.packet.resume_session])
+        # --effort: reasoning/thinking budget
+        effort = self.packet.effort or DEFAULT_EFFORT
+        if effort in VALID_EFFORT_LEVELS:
+            command.extend(["--effort", effort])
 
         # Write session metadata
         meta = {
@@ -1395,6 +1402,7 @@ class WorkerPacket:
     bare_mode: bool = False            # --bare (skip hooks/plugins/MCP)
     output_format: str = "json"        # json | stream-json | text
     input_files: list[str] | None = None  # files to pipe as stdin context
+    effort: str = DEFAULT_EFFORT       # --effort (thinking budget: low/medium/high/max)
 
 
 @dataclass
@@ -1532,6 +1540,11 @@ class ClaudeWorkerRuntime:
         if packet.bare_mode:
             command.append("--bare")
 
+        # --effort: reasoning/thinking budget (low/medium/high/max)
+        effort = packet.effort or DEFAULT_EFFORT
+        if effort in VALID_EFFORT_LEVELS:
+            command.extend(["--effort", effort])
+
         # --json-schema: structured output (only for json output format)
         if packet.output_format == "json":
             command.extend(["--json-schema", schema_json])
@@ -1549,6 +1562,7 @@ class ClaudeWorkerRuntime:
             "execution_mode": execution_mode,
             "provider": resolved_provider,
             "reasoning_mode": reasoning_mode,
+            "effort": effort,
             "sandbox_identity": packet.sandbox_identity,
             "sandbox_kind": sandbox_kind,
             "capability_profile": capability_profile,
@@ -1591,6 +1605,7 @@ class ClaudeWorkerRuntime:
                 "title": packet.title,
                 "lane": packet.lane,
                 "reasoning_mode": reasoning_mode,
+                "effort": effort,
                 "sandbox_identity": packet.sandbox_identity,
                 "sandbox_kind": sandbox_kind,
                 "capability_profile": capability_profile,
@@ -2083,6 +2098,7 @@ class ClaudeWorkerRuntime:
             "lane": record.packet.lane,
             "execution_mode": record.packet.execution_mode or DEFAULT_EXECUTION_MODE,
             "reasoning_mode": record.packet.reasoning_mode or DEFAULT_REASONING_MODE,
+            "effort": record.packet.effort or DEFAULT_EFFORT,
             "sandbox_identity": record.packet.sandbox_identity,
             "sandbox_kind": record.packet.sandbox_kind or DEFAULT_SANDBOX_KIND,
             "capability_profile": record.packet.capability_profile or _default_capability_profile(record.packet.kind, record.packet.reasoning_mode or DEFAULT_REASONING_MODE),
@@ -2172,6 +2188,7 @@ class ClaudeWorkerRuntime:
             "lane": record.packet.lane,
             "execution_mode": record.packet.execution_mode or DEFAULT_EXECUTION_MODE,
             "reasoning_mode": record.packet.reasoning_mode or DEFAULT_REASONING_MODE,
+            "effort": record.packet.effort or DEFAULT_EFFORT,
             "sandbox_identity": record.packet.sandbox_identity,
             "sandbox_kind": record.packet.sandbox_kind or DEFAULT_SANDBOX_KIND,
             "capability_profile": record.packet.capability_profile or _default_capability_profile(record.packet.kind, record.packet.reasoning_mode or DEFAULT_REASONING_MODE),
@@ -2235,6 +2252,8 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument("--title", default=None)
     start.add_argument("--lane", default=None)
     start.add_argument("--reasoning-mode", default=DEFAULT_REASONING_MODE)
+    start.add_argument("--effort", default=DEFAULT_EFFORT, choices=VALID_EFFORT_LEVELS,
+                       help="CC thinking budget: low, medium, high, max (default: high)")
     start.add_argument("--sandbox-identity", default=None)
     start.add_argument("--sandbox-kind", default=DEFAULT_SANDBOX_KIND)
     start.add_argument("--capability-profile", default=None)
@@ -2617,6 +2636,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             title=args.title,
             lane=args.lane,
             reasoning_mode=args.reasoning_mode,
+            effort=args.effort,
             sandbox_identity=args.sandbox_identity,
             sandbox_kind=args.sandbox_kind,
             capability_profile=args.capability_profile,
