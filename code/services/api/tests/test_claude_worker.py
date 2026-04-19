@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import urllib.error
 from pathlib import Path
 from unittest.mock import patch
 
@@ -25,6 +26,12 @@ from claude_worker.worker import (
     PROMPT_FILENAME,
     VALID_EXECUTION_MODES,
     DEFAULT_EXECUTION_MODE,
+    ProviderConfig,
+    ProviderRegistry,
+    CredentialStore,
+    check_prerequisites,
+    verify_provider_endpoint,
+    BUILTIN_PROVIDERS,
 )
 
 
@@ -1164,6 +1171,210 @@ class ClaudeWorkerRuntimeTest(unittest.TestCase):
             )
             events = (record.run_dir / "events.ndjson").read_text(encoding="utf-8")
             self.assertIn('"execution_mode": "interactive"', events)
+
+    def test_provider_registry_lists_builtins(self) -> None:
+        registry = ProviderRegistry(db_path=Path(tempfile.gettempdir()) / "test-providers.json")
+        providers = registry.list_providers()
+        names = [p.name for p in providers]
+        self.assertIn("anthropic", names)
+        self.assertIn("deepseek", names)
+        self.assertIn("qwen-bailian", names)
+        self.assertIn("qwen-bailian-coding", names)
+        self.assertIn("openrouter", names)
+        self.assertIn("z-ai", names)
+        self.assertIn("kimi", names)
+        self.assertIn("minimax", names)
+        self.assertIn("siliconflow", names)
+
+    def test_provider_registry_add_and_remove_custom(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "providers.json"
+            registry = ProviderRegistry(db_path=db_path)
+            custom = ProviderConfig(name="test-provider", api_key_env="TEST_KEY", base_url="https://api.test.com/v1", models=["test-model-1"])
+            registry.add_provider(custom)
+            retrieved = registry.get_provider("test-provider")
+            self.assertIsNotNone(retrieved)
+            self.assertEqual(retrieved.base_url, "https://api.test.com/v1")
+            # Remove
+            self.assertTrue(registry.remove_provider("test-provider"))
+            self.assertIsNone(registry.get_provider("test-provider"))
+            # Cannot remove builtin
+            self.assertFalse(registry.remove_provider("anthropic"))
+
+    def test_provider_registry_resolves_model_to_provider(self) -> None:
+        registry = ProviderRegistry(db_path=Path(tempfile.gettempdir()) / "test-providers2.json")
+        # qwen3.6-plus exists in both qwen-bailian and qwen-bailian-coding; first match wins (qwen-bailian)
+        provider = registry.resolve_provider_for_model("qwen3.6-plus")
+        self.assertIsNotNone(provider)
+        self.assertEqual(provider.name, "qwen-bailian")
+        # deepseek-chat resolves to deepseek
+        ds = registry.resolve_provider_for_model("deepseek-chat")
+        self.assertIsNotNone(ds)
+        self.assertEqual(ds.name, "deepseek")
+        # kimi-k2.5 resolves to kimi
+        kimi = registry.resolve_provider_for_model("kimi-k2.5")
+        self.assertIsNotNone(kimi)
+        self.assertEqual(kimi.name, "kimi")
+        # glm-4.7 resolves to z-ai
+        glm = registry.resolve_provider_for_model("glm-4.7")
+        self.assertIsNotNone(glm)
+        self.assertEqual(glm.name, "z-ai")
+        # MiniMax-M2.5 resolves to minimax
+        mm = registry.resolve_provider_for_model("MiniMax-M2.5")
+        self.assertIsNotNone(mm)
+        self.assertEqual(mm.name, "minimax")
+        unknown = registry.resolve_provider_for_model("nonexistent-model-xyz")
+        self.assertIsNone(unknown)
+
+    def test_provider_switch_writes_claude_settings(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings_dir = Path(tmpdir) / ".claude"
+            settings_dir.mkdir()
+            settings_path = settings_dir / "settings.json"
+            settings_path.write_text('{"model": "opus"}', encoding="utf-8")
+            cred_db_path = Path(tmpdir) / "credentials.db"
+            cred_store = CredentialStore(db_path=cred_db_path)
+            with patch("claude_worker.worker._claude_settings_dir", return_value=settings_dir):
+                with patch.dict(os.environ, {"DASHSCOPE_API_KEY": "test-key-123"}):
+                    registry = ProviderRegistry(db_path=Path(tmpdir) / "providers.json", cred_store=cred_store)
+                    result = registry.switch_active_provider("qwen-bailian")
+                    self.assertEqual(result["provider"], "qwen-bailian")
+                    self.assertEqual(result["credential_source"], "env_var")
+                    self.assertIn("ANTHROPIC_API_KEY", result["env_vars_set"])
+                    self.assertIn("ANTHROPIC_BASE_URL", result["env_vars_set"])
+                    settings = json.loads(settings_path.read_text(encoding="utf-8"))
+                    self.assertEqual(settings["env"]["ANTHROPIC_API_KEY"], "test-key-123")
+                    self.assertEqual(settings["env"]["ANTHROPIC_BASE_URL"], "https://dashscope.aliyuncs.com/apps/anthropic")
+                    self.assertEqual(settings["model"], "opus")  # preserved
+
+    def test_check_prerequisites_returns_structure(self) -> None:
+        result = check_prerequisites()
+        self.assertIn("checks", result)
+        self.assertIn("ready", result)
+        self.assertIn("missing", result)
+        self.assertIn("install_hints", result)
+        self.assertIn("python", result["checks"])
+        self.assertTrue(result["checks"]["python"]["ok"])
+
+    def test_start_auto_switches_provider_for_known_model(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings_dir = Path(tmpdir) / ".claude"
+            settings_dir.mkdir()
+            settings_path = settings_dir / "settings.json"
+            settings_path.write_text("{}", encoding="utf-8")
+            launched = {}
+
+            def launcher(command, **kwargs):
+                launched["command"] = command
+                return FakeProcess('{"summary":"ok","files_changed":[],"validation_run":"","known_risks":[],"recommendation":"accept"}')
+
+            with patch("claude_worker.worker._claude_settings_dir", return_value=settings_dir):
+                with patch.dict(os.environ, {"DASHSCOPE_API_KEY": "fake-key"}):
+                    runtime = ClaudeWorkerRuntime(run_root=tmpdir, launcher=launcher)
+                    record = runtime.start(
+                        WorkerPacket(kind="coding", prompt="Auto switch", cwd=tmpdir, model="qwen3.6-plus")
+                    )
+                    meta = json.loads((record.run_dir / "meta.json").read_text(encoding="utf-8"))
+                    self.assertEqual(meta["provider"], "qwen-bailian")
+                    self.assertIsNotNone(meta["provider_switch"])
+
+    def test_start_with_explicit_provider(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings_dir = Path(tmpdir) / ".claude"
+            settings_dir.mkdir()
+            settings_path = settings_dir / "settings.json"
+            settings_path.write_text("{}", encoding="utf-8")
+
+            def launcher(command, **kwargs):
+                return FakeProcess('{"summary":"ok","files_changed":[],"validation_run":"","known_risks":[],"recommendation":"accept"}')
+
+            with patch("claude_worker.worker._claude_settings_dir", return_value=settings_dir):
+                with patch.dict(os.environ, {"DEEPSEEK_API_KEY": "fake-key"}):
+                    runtime = ClaudeWorkerRuntime(run_root=tmpdir, launcher=launcher)
+                    record = runtime.start(
+                        WorkerPacket(kind="coding", prompt="Explicit provider", cwd=tmpdir, provider="deepseek")
+                    )
+                    meta = json.loads((record.run_dir / "meta.json").read_text(encoding="utf-8"))
+                    self.assertEqual(meta["provider"], "deepseek")
+
+    def test_cli_setup_command(self) -> None:
+        parser = build_parser()
+        parsed = parser.parse_args(["setup"])
+        self.assertEqual(parsed.command, "setup")
+
+    def test_cli_provider_commands(self) -> None:
+        parser = build_parser()
+        parsed = parser.parse_args(["provider", "list"])
+        self.assertEqual(parsed.command, "provider")
+        self.assertEqual(parsed.provider_command, "list")
+        parsed = parser.parse_args(["provider", "switch", "deepseek"])
+        self.assertEqual(parsed.provider_command, "switch")
+        self.assertEqual(parsed.name, "deepseek")
+        parsed = parser.parse_args(["provider", "add", "--name", "custom", "--base-url", "https://api.custom.com"])
+        self.assertEqual(parsed.provider_command, "add")
+        self.assertEqual(parsed.name, "custom")
+
+    def test_cli_start_provider_argument(self) -> None:
+        parser = build_parser()
+        parsed = parser.parse_args(["start", "--kind", "coding", "--prompt", "hello", "--provider", "deepseek"])
+        self.assertEqual(parsed.provider, "deepseek")
+
+    def test_provider_switch_fails_for_unknown_provider(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            registry = ProviderRegistry(db_path=Path(tmpdir) / "providers.json")
+            with self.assertRaises(ValueError):
+                registry.switch_active_provider("nonexistent-provider")
+
+    def test_verify_provider_no_api_key(self) -> None:
+        """verify_provider_endpoint returns error when no API key is set."""
+        provider = ProviderConfig(name="test-nokey", api_key_env="NONEXISTENT_KEY_12345", base_url="https://example.com/anthropic")
+        with patch("claude_worker.worker._load_claude_env", return_value={}), \
+             patch("claude_worker.worker._load_cc_switch_providers", return_value={}):
+            result = verify_provider_endpoint(provider, timeout=5.0)
+            self.assertFalse(result["ok"])
+            self.assertIn("No API key found", result["error"])
+
+    def test_verify_provider_connection_error(self) -> None:
+        """verify_provider_endpoint handles connection errors gracefully."""
+        provider = ProviderConfig(name="test-connfail", api_key_env="TEST_VERIFY_KEY", base_url="https://0.0.0.0:1/anthropic")
+        with patch.dict(os.environ, {"TEST_VERIFY_KEY": "fake-key"}):
+            result = verify_provider_endpoint(provider, timeout=2.0)
+            self.assertFalse(result["ok"])
+            self.assertIsNotNone(result["error"])
+
+    def test_verify_provider_http_error(self) -> None:
+        """verify_provider_endpoint handles HTTP errors (e.g. 401)."""
+        provider = ProviderConfig(name="test-httperr", api_key_env="TEST_VERIFY_KEY", base_url="https://api.anthropic.com")
+        err_body = json.dumps({"error": {"message": "invalid api key"}}).encode()
+        exc = urllib.error.HTTPError(
+            url="https://api.anthropic.com/v1/messages",
+            code=401,
+            msg="Unauthorized",
+            hdrs=None,
+            fp=None,
+        )
+        exc.read = lambda: err_body
+        with patch.dict(os.environ, {"TEST_VERIFY_KEY": "fake-key"}):
+            with patch("claude_worker.worker.urllib.request.urlopen", side_effect=exc):
+                result = verify_provider_endpoint(provider, timeout=5.0)
+                self.assertFalse(result["ok"])
+                self.assertEqual(result["status_code"], 401)
+
+    def test_verify_provider_success(self) -> None:
+        """verify_provider_endpoint returns ok=True on 200 response."""
+        provider = ProviderConfig(name="test-ok", api_key_env="TEST_VERIFY_KEY", base_url="https://example.com/anthropic", models=["test-model"])
+        mock_resp = unittest.mock.MagicMock()
+        mock_resp.status = 200
+        mock_resp.read.return_value = json.dumps({"model": "test-model", "content": [{"type": "text", "text": "OK"}]}).encode()
+        # Make the mock work as context manager: with urlopen(...) as resp
+        mock_resp.__enter__ = unittest.mock.MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = unittest.mock.MagicMock(return_value=False)
+        with patch.dict(os.environ, {"TEST_VERIFY_KEY": "fake-key"}):
+            with patch("claude_worker.worker.urllib.request.urlopen", return_value=mock_resp):
+                result = verify_provider_endpoint(provider, timeout=5.0)
+                self.assertTrue(result["ok"])
+                self.assertEqual(result["model_used"], "test-model")
+                self.assertIsNotNone(result["latency_ms"])
 
 
 if __name__ == "__main__":

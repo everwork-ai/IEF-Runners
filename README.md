@@ -1,56 +1,140 @@
-# Claude Worker Project
+# Claude Worker
 
-Project root: `D:\code\claude-worker`
-Initialized from the Claude worker hardening session on 2026-04-18.
+A CLI-driven Claude Code executor that wraps the `claude` CLI into a structured, programmable interface.
 
-This repository is now the independent home for the Claude worker capability
-line. It contains the key docs and code artifacts needed to review, reproduce,
-or continue the work without reading the live repo first.
+## Three Invocation Patterns
 
-## Included Docs
+```
+──────────────────────────────────────────────────────────────────
+ 1. Task Mode  (one_shot / detached)
+──────────────────────────────────────────────────────────────────
+    start → wait → fetch
 
-- `docs/IKE_CLAUDE_WORKER_P1_HARDENING_PACKET_2026-04-08.md`
-- `docs/IKE_CLAUDE_WORKER_MCP_FEASIBILITY_2026-04-07.md`
+    Single task, single result.  CC process runs once, writes
+    durable artifacts, then exits.  "detached" allows the caller
+    to detach and poll/fetch later.
 
-## Included Code
+    CLI:   start --execution-mode one_shot|detached → wait → fetch
 
-- `code/services/api/claude_worker/worker.py`
-- `code/services/api/tests/test_claude_worker.py`
-- `worker.skill.json`
+──────────────────────────────────────────────────────────────────
+ 2. Session Chain Mode  (continue)
+──────────────────────────────────────────────────────────────────
+    start → wait → fetch → continue → wait → fetch → ...
 
-## What This Project Covers
+    Each turn is a separate CC invocation linked via --resume so
+    the model retains context.  Crash-resilient: any completed
+    run can be continued from a fresh process.
 
-- live hang-proof hardening
-- detached run / supervisor seed
-- CLI end-to-end integration tests
-- result protocol alignment with the current harness
-- worker manifest for IKE harness import
+    CLI:   start → wait → fetch
+           continue --run-id <id> --prompt "..."
 
-## Validation Recorded by the Delegate
+──────────────────────────────────────────────────────────────────
+ 3. Live Session Mode  (LongRunSession)
+──────────────────────────────────────────────────────────────────
+    session-start → session-send / session-capture → session-stop
 
-- `python -m unittest tests.test_claude_worker`
-- `python -m compileall claude_worker`
+    CC process stays alive.  Inject follow-up prompts at any time
+    via bidirectional streaming (--input-format stream-json).
+    Auto-approves tool permissions in bypassPermissions mode.
 
-Delegate-reported results:
+    CLI:   session-start --prompt "..."
+           session-send    --session-id <id> --prompt "..."
+           session-capture --session-id <id>
+           session-stop    --session-id <id>
 
-- unittest: `Ran 15 tests ... OK`
-- compileall: passed
+    Python API:
+           session = LongRunSession(packet)
+           session.start()
+           session.send("follow-up prompt")
+           output = session.capture()
+           session.stop()
 
-## Controller Review Result
+──────────────────────────────────────────────────────────────────
+ Quick comparison
+──────────────────────────────────────────────────────────────────
+                    Task      Session Chain    Live Session
+  ─────────────────────────────────────────────────────────
+  CC process        exits     exits per turn   stays alive
+  Context kept?     no        yes (--resume)   yes (in-process)
+  Crash-resilient?  yes       yes              no
+  Latency per turn  cold      warm (cache)     hot (live)
+  Inject mid-run?   no        no               yes
+  Cross-process?    yes       yes              no (in-memory)
+```
 
-- Recommendation: `accept_with_changes`
-- Review findings:
-  - result projection keyed by `task_id` can overwrite prior artifacts
-  - detached abort does not prove child exit after signal delivery
+## Project Structure
 
-## Remaining Gaps
+```
+code/services/api/
+├── claude_worker/
+│   └── worker.py              # Complete runtime (single file)
+└── tests/
+    └── test_claude_worker.py  # 54 tests
+```
 
-- result-file uniqueness for repeated task ids
-- detached abort exit confirmation / escalation
-- live hang-proof still not system-level Claude binary fault injection
+## Quick Start
 
-## Notes
+```bash
+# Task Mode — run a single coding task
+python -m claude_worker.worker start \
+  --kind coding \
+  --prompt "Add error handling to all API calls" \
+  --provider z-ai
 
-This project is separate from `MyAttention`. The live repo remains the source
-of the broader IKE mainline, while this repo now hosts the Claude worker
-capability line as its own bounded workspace.
+# Session Chain — continue a completed run
+python -m claude_worker.worker continue \
+  --run-id <run-id> \
+  --prompt "Now add unit tests for the error handling"
+
+# Live Session — interactive multi-turn
+python -m claude_worker.worker session-start \
+  --prompt "Refactor the auth module" \
+  --provider z-ai
+# (returns session-id, then use session-send/capture/stop)
+```
+
+## Key Features
+
+- **Provider switching**: Auto-resolves model → provider, switches CC settings and env vars
+- **Credential store**: Encrypted per-provider credentials (compatible with cc-switch import)
+- **Safety bounds**: `--max-turns`, `--allowed-tools`, `--permission-mode`
+- **Durable artifacts**: `final.json`, `stdout.txt`, `exitcode.txt`, `events.ndjson`
+- **Detached execution**: Fire-and-forget with poll/fetch/abort lifecycle
+- **CC native capabilities**: `--resume`, `--continue`, `--fork-session`, `--bare`, `--output-format stream-json`
+
+## Provider Management
+
+```bash
+# List providers
+python -m claude_worker.worker provider list
+
+# Add a custom provider
+python -m claude_worker.worker provider add my-provider \
+  --base-url https://api.example.com/api/anthropic \
+  --auth-token-env ANTHROPIC_AUTH_TOKEN
+
+# Import from cc-switch
+python -m claude_worker.worker provider import-cc-switch
+
+# Verify connectivity
+python -m claude_worker.worker provider verify my-provider
+```
+
+## Running Tests
+
+```bash
+cd code/services/api
+python -m pytest tests/test_claude_worker.py -v
+```
+
+## Docs
+
+- `docs/IKE_CLAUDE_WORKER_MCP_FEASIBILITY_2026-04-07.md` — Original feasibility analysis
+- `docs/IKE_CLAUDE_WORKER_P1_HARDENING_PACKET_2026-04-08.md` — P1 hardening specification
+
+## Requirements
+
+- Python 3.10+
+- Claude Code CLI (`npm install -g @anthropic-ai/claude-code`)
+- At least one configured provider (run `python -m claude_worker.worker setup` to check)
+

@@ -3,6 +3,7 @@ __pycache__/
 .pytest_cache/
 .runtime/
 .qoder/
+_agent-runtimes/
 **/.runtime/
 code/**/__pycache__/
 code/**/*.pyc

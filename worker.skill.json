@@ -3,20 +3,46 @@
   "skill_id": "claude-worker",
   "name": "Claude Worker",
   "kind": "worker",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "status": "active",
   "entrypoint": "python -m claude_worker",
-  "repo_root": "D:/code/claude-worker",
   "default_execution_mode": "one_shot",
-  "supported_execution_modes": ["one_shot", "interactive"],
+  "supported_execution_modes": ["one_shot", "detached", "interactive"],
+  "invocation_patterns": {
+    "task_mode": {
+      "description": "Single task, single result. CC exits after completion.",
+      "modes": ["one_shot", "detached"],
+      "cli": "start --execution-mode one_shot|detached → wait → fetch"
+    },
+    "session_chain_mode": {
+      "description": "Multi-turn via separate CC invocations linked by --resume. Crash-resilient.",
+      "cli": "start → wait → fetch → continue --run-id <id> --prompt '...'"
+    },
+    "live_session_mode": {
+      "description": "CC process stays alive, accepts multiple prompts via bidirectional streaming.",
+      "cli": "session-start → session-send/capture × N → session-stop",
+      "class": "LongRunSession"
+    }
+  },
   "model_switching": {
     "default_model": "qwen3.6-plus",
-    "supported_models": ["qwen3.6-plus"],
-    "supported_providers": ["bailian-cp", "zhipu-cp"],
+    "supported_models": ["qwen3.6-plus", "glm-4.7", "glm-5.1"],
+    "supported_providers": ["bailian-cp", "zhipu-cp", "z-ai", "anthropic", "deepseek"],
     "supports_model_override": true,
     "supports_provider_override": true,
     "provider_policy": "external_harness_controlled",
     "reasoning_mode_default": "high"
+  },
+  "cc_native_capabilities": {
+    "max_turns": true,
+    "allowed_tools": true,
+    "resume_session": true,
+    "continue_session": true,
+    "fork_session": true,
+    "bare_mode": true,
+    "output_format": ["json", "stream-json", "text"],
+    "input_files": true,
+    "bidirectional_streaming": true
   },
   "artifact_contract": [
     "meta.json",
@@ -26,7 +52,10 @@
     "exitcode.txt",
     "final.json",
     "harness_result.json",
-    "summary.md"
+    "summary.md",
+    "patch.diff",
+    "supervisor.json",
+    "prompt.txt"
   ],
   "result_protocol": {
     "summary": true,
@@ -50,8 +79,7 @@
     ]
   },
   "validation_hooks": [
-    "python -m unittest tests.test_claude_worker",
-    "python -m compileall claude_worker tests\\test_claude_worker.py"
+    "python -m pytest tests/test_claude_worker.py -v"
   ],
   "stop_conditions": [
     "controller architecture changes required",
