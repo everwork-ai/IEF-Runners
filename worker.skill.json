@@ -1,5 +1,17 @@
 {
   "_comment": "MOVED: This file has been restructured into runners/claudecode/claudecode.skill.json",
   "status": "deprecated",
-  "new_location": "runners/claudecode/claudecode.skill.json"
+  "new_location": "runners/claudecode/claudecode.skill.json",
+  "runners": {
+    "claudecode": {
+      "skill_file": "runners/claudecode/claudecode.skill.json",
+      "status": "active"
+    },
+    "deterministic-stub": {
+      "skill_file": "runners/deterministic/AGENTS.md",
+      "status": "contract_spec_only",
+      "stage": "D_P0",
+      "description": "Deterministic runner stub: accepts TaskEnvelope, emits RunEvent/ArtifactRef, no external dispatch, no self-approval. See runners/deterministic/AGENTS.md for full contract spec."
+    }
+  }
 }
