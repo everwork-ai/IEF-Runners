@@ -312,3 +312,22 @@ All text fields in `RunEvent` and `ArtifactRef` must be normalized:
 - No BOM (byte order mark).
 - No smart quotes or typographic substitutions.
 - Plain ASCII for structural fields; UTF-8 allowed in `evidence_summary` and `error_message` only after control character stripping.
+
+---
+
+## Stage E Contract References
+
+This deterministic stub operates under the Stage E contract. The following documents define the authoritative Stage E boundaries:
+
+| Document | Purpose |
+|---|---|
+| [STAGE_E_RUNNER_CONTRACT.md](../../docs/STAGE_E_RUNNER_CONTRACT.md) | Full Stage E runner contract — control-plane consumption, gated lifecycle, evidence reporting |
+| [PROTOCOL_SCHEMA_REFERENCE.md](../../docs/PROTOCOL_SCHEMA_REFERENCE.md) | Protocol schema version pinning (RC1) |
+| [OPERATIONS_DELIVERY_PATH.md](../../docs/OPERATIONS_DELIVERY_PATH.md) | Where RunEvent evidence is delivered (RC2) |
+| [DEDUPE_EVENT_IDENTITY.md](../../docs/DEDUPE_EVENT_IDENTITY.md) | Event identity and dedupe behavior (RC3) |
+| [LOCAL_CACHE_BOUNDARY.md](../../docs/LOCAL_CACHE_BOUNDARY.md) | Non-authoritative cache boundary (RC4) |
+| [STOP_CANCEL_ENFORCEMENT_TESTS.md](../../docs/STOP_CANCEL_ENFORCEMENT_TESTS.md) | Hard stop point tests (RC5) |
+| [BOUNDARY_ENFORCEMENT_RULES.md](../../docs/BOUNDARY_ENFORCEMENT_RULES.md) | May/May-not rules (RC6) |
+| [STAGE_C_OPEN_QUESTIONS_RESOLVED.md](../../docs/STAGE_C_OPEN_QUESTIONS_RESOLVED.md) | Resolved open questions Q1–Q6 |
+
+This contract spec (Phase 1.1–1.6) remains the behavioral specification for the deterministic stub. The Stage E documents above extend the stub's operational context without modifying its behavior.
