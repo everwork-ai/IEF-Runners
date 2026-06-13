@@ -118,4 +118,27 @@ All entries are `observation` type — no self-promotion to `accepted_fact`.
 
 ---
 
+### 1.7 E5 Re-Validation (trigger ief_stage_e_e5_runners_20260614_000000)
+
+| Field | Value |
+|---|---|
+| Entry type | `observation` |
+| Source | Trigger file `ief_stage_e_e5_runners_20260614_000000.json` |
+| Classification | `STAGE_E_EXECUTION_REPORT` |
+| Trigger id | `ief_stage_e_e5_runners_20260614_000000` |
+| Executed at | 2026-06-14T00:04:00+08:00 |
+| Actor | ief-operator |
+| Repo | `everwork-ai/IEF-Runners` |
+| Branch | `main` |
+| HEAD SHA | `9c242b0` |
+| Directive comment | [4656179869](https://github.com/everwork-ai/IEF-Runners/issues/3#issuecomment-4656179869) |
+| Review decision | [4656665045](https://github.com/everwork-ai/IEF-Runners/issues/3#issuecomment-4656665045) — `PASSED` |
+| Deliverables verified | D1–D10 (all present, unchanged from commit `529bcd9`) |
+| Changes required | None — all deliverables already delivered |
+| Code changes | None |
+| Cross-repo writes | None attempted |
+| Forbidden actions | None attempted |
+
+---
+
 *Delivered by ief-operator executing one bounded Stage E execution cycle. No code changes, no cross-repo mutations, no self-approvals.*
