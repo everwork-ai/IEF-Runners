@@ -8,14 +8,14 @@ info:
     1. Runner identity and capability metadata (RunnerMetadata, RunnerCapability)
     2. Task acceptance (TaskAcceptanceRequest, TaskAcceptanceResponse)
     3. Rejection behavior
-    4. Execution lifecycle reporting (start, progress, completion, failure, blocked, cancelled)
+    4. Execution lifecycle reporting (started, running, completed, failed, stopped, cancelled, blocked, timed_out)
     5. RunEvent emission (RunEventReport)
     6. ArtifactRef reporting (ArtifactRefReport)
     7. Runner error schema (RunnerError)
     8. Heartbeat / status reporting
     9. Idempotency and deduplication metadata
     10. Version compatibility rules
-    11. No-self-approval rule — runner emits evidence only;
+    11. No-self-approval rule - runner emits evidence only;
         Operations / review gate owns acceptance.
 
     Hard constraints:
@@ -87,7 +87,7 @@ paths:
       description: |
         The runner acknowledges a task assignment.
         On success the runner transitions the task to `accepted`.
-        The runner MUST NOT self-approve — it only emits evidence.
+        The runner MUST NOT self-approve - it only emits evidence.
         The Operations / review gate owns final acceptance.
       tags: [Task Acceptance]
       parameters:
@@ -124,7 +124,7 @@ paths:
                 rejected:
                   $ref: "#/components/examples/TaskRejectedExample"
         "409":
-          description: Conflict — task already accepted / running
+          description: Conflict - task already accepted / running
           content:
             application/json:
               schema:
@@ -145,7 +145,7 @@ paths:
       summary: Report an execution lifecycle event
       description: |
         The runner emits a lifecycle event for a task run.
-        Valid statuses: start, progress, completion, failure, blocked, cancelled.
+        Valid statuses: started, running, completed, failed, stopped, cancelled, blocked, timed_out.
         The runner is an evidence emitter only; it does not decide final task state.
       tags: [Lifecycle]
       parameters:
@@ -272,7 +272,7 @@ paths:
                 $ref: "#/components/schemas/VersionCompatibility"
 
 # ──────────────────────────────────────────────
-# Components — Schemas
+# Components - Schemas
 # ──────────────────────────────────────────────
 components:
 
@@ -433,13 +433,15 @@ components:
     LifecycleStatus:
       type: string
       enum:
-        - start
-        - progress
-        - completion
-        - failure
-        - blocked
+        - started
+        - running
+        - completed
+        - failed
+        - stopped
         - cancelled
-      description: Permitted lifecycle status values.
+        - blocked
+        - timed_out
+      description: Permitted lifecycle status values (aligned with Stage E RunEvents).
 
     LifecycleStatusDetail:
       type: object
@@ -452,7 +454,7 @@ components:
           type: integer
           minimum: 0
           maximum: 100
-          description: Progress percentage (only relevant for `progress`).
+          description: Progress percentage (only relevant for `running`).
         stage:
           type: string
           description: Named stage within the runner's execution pipeline.
@@ -465,6 +467,7 @@ components:
       required:
         - taskId
         - runId
+        - actor
         - status
         - timestamp
         - idempotencyKey
@@ -472,10 +475,14 @@ components:
         taskId:
           type: string
           format: uuid
+          description: Task identifier from the originating TaskEnvelope.
         runId:
           type: string
           format: uuid
           description: Unique identifier for this particular execution attempt.
+        actor:
+          type: string
+          description: Identity of the runner or worker that emitted this event (from TaskEnvelope actor).
         status:
           $ref: "#/components/schemas/LifecycleStatus"
         timestamp:
@@ -487,7 +494,7 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/RunnerError"
-          description: Populated when status is `failure` or `blocked`.
+          description: Populated when status is `failed` or `blocked`.
         evidence:
           $ref: "#/components/schemas/EvidenceRef"
           description: |
@@ -527,17 +534,31 @@ components:
       type: object
       description: Reference to a single artifact produced during execution.
       required:
+        - artifact_id
+        - artifact_type
         - name
-        - uri
+        - location
         - mediaType
+        - created_by
       properties:
+        artifact_id:
+          type: string
+          format: uuid
+          description: Unique artifact identifier.
+        artifact_type:
+          type: string
+          description: Classification of the artifact (e.g. generated_spec, execution_log, evidence_payload).
         name:
           type: string
           description: Human-readable artifact name.
-        uri:
+        location:
           type: string
           format: uri
           description: Locatable URI for the artifact (storage URL, blob ref, etc.).
+        uri:
+          type: string
+          format: uri
+          description: Alias for location (backward compatibility).
         mediaType:
           type: string
           description: MIME type of the artifact.
@@ -548,6 +569,12 @@ components:
         checksum:
           type: string
           description: SHA-256 checksum of the artifact content.
+        description:
+          type: string
+          description: Human-readable description of the artifact purpose.
+        created_by:
+          type: string
+          description: Identity of the runner or worker that produced this artifact.
         metadata:
           type: object
           additionalProperties: true
@@ -713,7 +740,7 @@ components:
           description: SHA-256 hash of the evidence payload.
 
   # ──────────────────────────────────────────────
-  # Components — Examples
+  # Components - Examples
   # ──────────────────────────────────────────────
   examples:
 
@@ -760,11 +787,12 @@ components:
 
     # ── Example: Lifecycle started ──
     LifecycleStartedExample:
-      summary: Lifecycle event — start
+      summary: Lifecycle event - started
       value:
         taskId: "6f8a3c21-1b9e-4d0f-a832-0e9c7b5d1234"
         runId: "1a2b3c4d-5e6f-7a8b-9c0d-1e2f3a4b5c6d"
-        status: "start"
+        actor: "claudecode-runner-1"
+        status: "started"
         timestamp: "2026-06-25T10:06:00Z"
         detail:
           message: "Task execution started."
@@ -773,11 +801,12 @@ components:
 
     # ── Example: Lifecycle completed ──
     LifecycleCompletedExample:
-      summary: Lifecycle event — completion
+      summary: Lifecycle event - completed
       value:
         taskId: "6f8a3c21-1b9e-4d0f-a832-0e9c7b5d1234"
         runId: "1a2b3c4d-5e6f-7a8b-9c0d-1e2f3a4b5c6d"
-        status: "completion"
+        actor: "claudecode-runner-1"
+        status: "completed"
         timestamp: "2026-06-25T10:10:00Z"
         detail:
           message: "Task completed successfully."
@@ -793,11 +822,12 @@ components:
 
     # ── Example: Lifecycle failed ──
     LifecycleFailedExample:
-      summary: Lifecycle event — failure
+      summary: Lifecycle event - failed
       value:
         taskId: "6f8a3c21-1b9e-4d0f-a832-0e9c7b5d1234"
         runId: "1a2b3c4d-5e6f-7a8b-9c0d-1e2f3a4b5c6d"
-        status: "failure"
+        actor: "claudecode-runner-1"
+        status: "failed"
         timestamp: "2026-06-25T10:08:00Z"
         detail:
           message: "Task failed due to unexpected error in execution."
@@ -819,14 +849,15 @@ components:
 
     # ── Example: Lifecycle blocked ──
     LifecycleBlockedExample:
-      summary: Lifecycle event — blocked
+      summary: Lifecycle event - blocked
       value:
         taskId: "6f8a3c21-1b9e-4d0f-a832-0e9c7b5d1234"
         runId: "1a2b3c4d-5e6f-7a8b-9c0d-1e2f3a4b5c6d"
+        actor: "claudecode-runner-1"
         status: "blocked"
         timestamp: "2026-06-25T10:07:00Z"
         detail:
-          message: "Task blocked — waiting for external dependency resolution."
+          message: "Task blocked - waiting for external dependency resolution."
           stage: "execute"
         errors:
           - code: "DEPENDENCY_UNAVAILABLE"
@@ -850,17 +881,25 @@ components:
         taskId: "6f8a3c21-1b9e-4d0f-a832-0e9c7b5d1234"
         runId: "1a2b3c4d-5e6f-7a8b-9c0d-1e2f3a4b5c6d"
         artifacts:
-          - name: "generated-spec.yaml"
-            uri: "s3://ief-artifacts/6f8a3c21/generated-spec.yaml"
+          - artifact_id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+            artifact_type: "generated_spec"
+            name: "generated-spec.yaml"
+            location: "s3://ief-artifacts/6f8a3c21/generated-spec.yaml"
             mediaType: "application/yaml"
             sizeBytes: 12480
             checksum: "sha256:e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6"
+            description: "Generated Evolution Guardrail Spec"
+            created_by: "claudecode-runner-1"
             metadata:
               generatedBy: "claudecode"
               stage: "execute"
-          - name: "execution-log.json"
-            uri: "s3://ief-artifacts/6f8a3c21/execution-log.json"
+          - artifact_id: "b2c3d4e5-f6a7-8901-bcde-f12345678901"
+            artifact_type: "execution_log"
+            name: "execution-log.json"
+            location: "s3://ief-artifacts/6f8a3c21/execution-log.json"
             mediaType: "application/json"
             sizeBytes: 4096
             checksum: "sha256:f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7"
+            description: "Execution trace log"
+            created_by: "claudecode-runner-1"
         idempotencyKey: "f9c0d1e2-3a4b-5c6d-7e8f-9a0b1c2d3e4f"
