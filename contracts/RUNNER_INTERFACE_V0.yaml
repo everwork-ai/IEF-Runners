@@ -1,0 +1,905 @@
+openapi: 3.1.0
+info:
+  title: IEF Runner Interface v0
+  description: |
+    OpenAPI 3.1 contract defining the runner interface for IEF-Runners.
+
+    This specification covers:
+    1. Runner identity and capability metadata (RunnerMetadata, RunnerCapability)
+    2. Task acceptance (TaskAcceptanceRequest, TaskAcceptanceResponse)
+    3. Rejection behavior
+    4. Execution lifecycle reporting (started, running, completed, failed, stopped, cancelled, blocked, timed_out)
+    5. RunEvent emission (RunEventReport)
+    6. ArtifactRef reporting (ArtifactRefReport)
+    7. Runner error schema (RunnerError)
+    8. Heartbeat / status reporting
+    9. Idempotency and deduplication metadata
+    10. Version compatibility rules
+    11. No-self-approval rule - runner emits evidence only;
+        Operations / review gate owns acceptance.
+
+    Hard constraints:
+    - Contract only. No actual LLM/tool integration.
+    - No multi-runner orchestration.
+    - No runtime daemon spec.
+    - No task-lifecycle authority inside the runner.
+    - No runner self-approval.
+    - No direct merge / close / unblock operations.
+  version: 0.1.0
+  contact:
+    name: IEF-Runners
+  license:
+    name: MIT
+    identifier: MIT
+
+tags:
+  - name: Runner Identity
+    description: RunnerMetadata and RunnerCapability schemas.
+  - name: Task Acceptance
+    description: Task acceptance request / response and rejection behavior.
+  - name: Lifecycle
+    description: Execution lifecycle events and RunEvent emission.
+  - name: Artifacts
+    description: ArtifactRef reporting.
+  - name: Errors
+    description: RunnerError schema.
+  - name: Heartbeat
+    description: Heartbeat and status reporting.
+  - name: Idempotency
+    description: Idempotency key and deduplication metadata.
+  - name: Compatibility
+    description: Version compatibility rules.
+  - name: Examples
+    description: Concrete API example payloads.
+
+# ──────────────────────────────────────────────
+# Paths
+# ──────────────────────────────────────────────
+paths:
+
+  # --- Runner metadata / capability introspection ---
+
+  /runner/metadata:
+    get:
+      operationId: GetRunnerMetadata
+      summary: Retrieve runner identity and capability metadata
+      description: |
+        Returns the runner's identity (RunnerMetadata) and its
+        declared capabilities (RunnerCapability).
+      tags: [Runner Identity]
+      responses:
+        "200":
+          description: Runner metadata retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunnerMetadata"
+              examples:
+                example-runner:
+                  $ref: "#/components/examples/RunnerMetadataExample"
+
+  # --- Task acceptance ---
+
+  /tasks/{taskId}/accept:
+    post:
+      operationId: AcceptTask
+      summary: Accept a task for execution
+      description: |
+        The runner acknowledges a task assignment.
+        On success the runner transitions the task to `accepted`.
+        The runner MUST NOT self-approve - it only emits evidence.
+        The Operations / review gate owns final acceptance.
+      tags: [Task Acceptance]
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Unique task identifier
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TaskAcceptanceRequest"
+      responses:
+        "200":
+          description: Task accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskAcceptanceResponse"
+              examples:
+                accepted:
+                  $ref: "#/components/examples/TaskAcceptedExample"
+        "202":
+          description: Task rejected by runner
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskAcceptanceResponse"
+              examples:
+                rejected:
+                  $ref: "#/components/examples/TaskRejectedExample"
+        "409":
+          description: Conflict - task already accepted / running
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunnerError"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunnerError"
+      x-idempotency-key: required
+
+  # --- Lifecycle event reporting ---
+
+  /tasks/{taskId}/lifecycle:
+    post:
+      operationId: ReportLifecycleEvent
+      summary: Report an execution lifecycle event
+      description: |
+        The runner emits a lifecycle event for a task run.
+        Valid statuses: started, running, completed, failed, stopped, cancelled, blocked, timed_out.
+        The runner is an evidence emitter only; it does not decide final task state.
+      tags: [Lifecycle]
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RunEventReport"
+            examples:
+              started:
+                $ref: "#/components/examples/LifecycleStartedExample"
+              completed:
+                $ref: "#/components/examples/LifecycleCompletedExample"
+              failed:
+                $ref: "#/components/examples/LifecycleFailedExample"
+              blocked:
+                $ref: "#/components/examples/LifecycleBlockedExample"
+      responses:
+        "200":
+          description: Lifecycle event recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunEventReport"
+        "400":
+          description: Invalid lifecycle status value
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunnerError"
+        "409":
+          description: Illegal state transition
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunnerError"
+      x-idempotency-key: required
+
+  # --- Artifact refs ---
+
+  /tasks/{taskId}/artifacts:
+    post:
+      operationId: ReportArtifacts
+      summary: Report artifact references produced by a task run
+      description: |
+        The runner reports artifacts (outputs) generated during execution.
+      tags: [Artifacts]
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ArtifactRefReport"
+            examples:
+              example-artifacts:
+                $ref: "#/components/examples/ArtifactRefExample"
+      responses:
+        "200":
+          description: Artifacts recorded
+        "400":
+          description: Invalid artifact report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunnerError"
+      x-idempotency-key: required
+
+  # --- Heartbeat ---
+
+  /runner/heartbeat:
+    post:
+      operationId: PostHeartbeat
+      summary: Runner heartbeat / status report
+      description: |
+        Periodic liveness signal from the runner.
+        Includes current load, active task count, and health status.
+      tags: [Heartbeat]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RunnerHeartbeat"
+      responses:
+        "200":
+          description: Heartbeat acknowledged
+        "400":
+          description: Invalid heartbeat payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunnerError"
+
+  # --- Compatibility probe ---
+
+  /runner/compatibility:
+    get:
+      operationId: GetCompatibility
+      summary: Version compatibility probe
+      description: |
+        Returns the runner's supported IEF-Protocol version range
+        and capability flags for negotiation.
+      tags: [Compatibility]
+      responses:
+        "200":
+          description: Compatibility info
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VersionCompatibility"
+
+# ──────────────────────────────────────────────
+# Components - Schemas
+# ──────────────────────────────────────────────
+components:
+
+  schemas:
+
+    # ── 1. Runner identity & capability ──
+
+    RunnerMetadata:
+      type: object
+      description: Immutable identity metadata for a runner instance.
+      required:
+        - runnerId
+        - runnerType
+        - version
+        - createdAt
+      properties:
+        runnerId:
+          type: string
+          format: uuid
+          description: Globally unique runner identifier.
+        runnerType:
+          type: string
+          enum:
+            - claudecode
+            - gemini
+            - codex
+            - qoder
+            - custom
+          description: Canonical runner implementation type.
+        version:
+          type: string
+          description: Runner implementation version (semver).
+        createdAt:
+          type: string
+          format: date-time
+          description: Runner registration timestamp (ISO 8601).
+        labels:
+          type: object
+          additionalProperties:
+            type: string
+          description: Free-form key-value labels.
+        capabilities:
+          $ref: "#/components/schemas/RunnerCapability"
+
+    RunnerCapability:
+      type: object
+      description: Declared capabilities of the runner.
+      required:
+        - supportedTaskTypes
+        - maxConcurrency
+        - maxPayloadBytes
+      properties:
+        supportedTaskTypes:
+          type: array
+          items:
+            type: string
+          description: Task types this runner can handle.
+        maxConcurrency:
+          type: integer
+          minimum: 1
+          description: Maximum concurrent task slices.
+        maxPayloadBytes:
+          type: integer
+          minimum: 1
+          description: Maximum context-pack payload size in bytes.
+        supportedLanguages:
+          type: array
+          items:
+            type: string
+          description: Programming languages the runner supports.
+        features:
+          type: array
+          items:
+            type: string
+          description: Optional feature flags (e.g. "resume", "artifact-upload").
+        canResume:
+          type: boolean
+          default: false
+          description: Whether the runner supports the resume(run_ref) operation.
+
+    # ── 2. Task acceptance ──
+
+    TaskAcceptanceRequest:
+      type: object
+      description: Request payload for accepting (or declining) a task.
+      required:
+        - taskId
+        - envelopeHash
+        - accept
+        - idempotencyKey
+      properties:
+        taskId:
+          type: string
+          format: uuid
+          description: Task identifier from the task envelope.
+        envelopeHash:
+          type: string
+          description: SHA-256 hash of the received task envelope for integrity verification.
+        accept:
+          type: boolean
+          description: |
+            `true` to accept the task; `false` to reject.
+        rejectionReason:
+          type: string
+          description: Required when `accept` is false. Explains why the runner rejected the task.
+        rejectionCode:
+          type: string
+          enum:
+            - capacity_exceeded
+            - unsupported_task_type
+            - payload_too_large
+            - invalid_envelope
+            - runner_shutdown
+            - other
+          description: Machine-readable rejection code.
+        idempotencyKey:
+          type: string
+          format: uuid
+          description: Idempotency key for deduplication (see Idempotency section).
+
+    TaskAcceptanceResponse:
+      type: object
+      description: Response to a task acceptance request.
+      required:
+        - taskId
+        - status
+        - timestamp
+      properties:
+        taskId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum:
+            - accepted
+            - rejected
+            - conflict
+          description: Outcome of the acceptance request.
+        timestamp:
+          type: string
+          format: date-time
+          description: Timestamp of the decision (ISO 8601).
+        evidence:
+          $ref: "#/components/schemas/EvidenceRef"
+          description: |
+            Evidence record emitted by the runner.
+            Final acceptance is determined by Operations / review gate (no-self-approval).
+        rejectionDetail:
+          type: string
+          description: Human-readable rejection detail (present when status is `rejected`).
+
+    # ── 3. Rejection behavior schema (embedded in TaskAcceptanceResponse / RunnerError) ──
+    #    No separate top-level schema needed; rejection codes and reasons are
+    #    fully specified in TaskAcceptanceRequest and TaskAcceptanceResponse above.
+
+    # ── 4. Execution lifecycle statuses ──
+
+    LifecycleStatus:
+      type: string
+      enum:
+        - started
+        - running
+        - completed
+        - failed
+        - stopped
+        - cancelled
+        - blocked
+        - timed_out
+      description: Permitted lifecycle status values (aligned with Stage E RunEvents).
+
+    LifecycleStatusDetail:
+      type: object
+      description: Optional structured detail attached to a lifecycle event.
+      properties:
+        message:
+          type: string
+          description: Human-readable status message.
+        progressPercent:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: Progress percentage (only relevant for `running`).
+        stage:
+          type: string
+          description: Named stage within the runner's execution pipeline.
+
+    # ── 5. RunEvent emission schema ──
+
+    RunEventReport:
+      type: object
+      description: A lifecycle event emitted by the runner for a task run.
+      required:
+        - taskId
+        - runId
+        - actor
+        - status
+        - timestamp
+        - idempotencyKey
+      properties:
+        taskId:
+          type: string
+          format: uuid
+          description: Task identifier from the originating TaskEnvelope.
+        runId:
+          type: string
+          format: uuid
+          description: Unique identifier for this particular execution attempt.
+        actor:
+          type: string
+          description: Identity of the runner or worker that emitted this event (from TaskEnvelope actor).
+        status:
+          $ref: "#/components/schemas/LifecycleStatus"
+        timestamp:
+          type: string
+          format: date-time
+        detail:
+          $ref: "#/components/schemas/LifecycleStatusDetail"
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/RunnerError"
+          description: Populated when status is `failed` or `blocked`.
+        evidence:
+          $ref: "#/components/schemas/EvidenceRef"
+          description: |
+            Evidence of the state change. The runner emits evidence only;
+            Operations / review gate owns acceptance of the result.
+        idempotencyKey:
+          type: string
+          format: uuid
+
+    # ── 6. ArtifactRef reporting ──
+
+    ArtifactRefReport:
+      type: object
+      description: A report of artifacts produced by a task run.
+      required:
+        - taskId
+        - runId
+        - artifacts
+        - idempotencyKey
+      properties:
+        taskId:
+          type: string
+          format: uuid
+        runId:
+          type: string
+          format: uuid
+        artifacts:
+          type: array
+          items:
+            $ref: "#/components/schemas/ArtifactRef"
+          minItems: 1
+        idempotencyKey:
+          type: string
+          format: uuid
+
+    ArtifactRef:
+      type: object
+      description: Reference to a single artifact produced during execution.
+      required:
+        - artifact_id
+        - artifact_type
+        - name
+        - location
+        - mediaType
+        - created_by
+      properties:
+        artifact_id:
+          type: string
+          format: uuid
+          description: Unique artifact identifier.
+        artifact_type:
+          type: string
+          description: Classification of the artifact (e.g. generated_spec, execution_log, evidence_payload).
+        name:
+          type: string
+          description: Human-readable artifact name.
+        location:
+          type: string
+          format: uri
+          description: Locatable URI for the artifact (storage URL, blob ref, etc.).
+        uri:
+          type: string
+          format: uri
+          description: Alias for location (backward compatibility).
+        mediaType:
+          type: string
+          description: MIME type of the artifact.
+        sizeBytes:
+          type: integer
+          minimum: 0
+          description: Artifact size in bytes.
+        checksum:
+          type: string
+          description: SHA-256 checksum of the artifact content.
+        description:
+          type: string
+          description: Human-readable description of the artifact purpose.
+        created_by:
+          type: string
+          description: Identity of the runner or worker that produced this artifact.
+        metadata:
+          type: object
+          additionalProperties: true
+          description: Arbitrary artifact metadata.
+
+    # ── 7. Runner error schema ──
+
+    RunnerError:
+      type: object
+      description: Structured error reported by the runner.
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          description: Machine-readable error code.
+        message:
+          type: string
+          description: Human-readable error description.
+        severity:
+          type: string
+          enum: [info, warning, error, fatal]
+          default: error
+        source:
+          type: string
+          description: Origin of the error (e.g. "runner", "network", "filesystem").
+        retryable:
+          type: boolean
+          default: false
+          description: Whether the error is transient and can be retried.
+        details:
+          type: object
+          additionalProperties: true
+          description: Arbitrary structured error context.
+        timestamp:
+          type: string
+          format: date-time
+
+    # ── 8. Heartbeat / status ──
+
+    RunnerHeartbeat:
+      type: object
+      description: Periodic liveness and status report from the runner.
+      required:
+        - runnerId
+        - status
+        - timestamp
+      properties:
+        runnerId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [healthy, degraded, draining, offline]
+          description: Runner health status.
+        timestamp:
+          type: string
+          format: date-time
+        activeTaskCount:
+          type: integer
+          minimum: 0
+          description: Number of tasks currently being processed.
+        queueDepth:
+          type: integer
+          minimum: 0
+          description: Number of tasks waiting in the runner's queue.
+        loadPercent:
+          type: number
+          minimum: 0
+          maximum: 100
+          description: Current CPU / resource utilization percentage.
+        lastError:
+          $ref: "#/components/schemas/RunnerError"
+          description: Most recent error, if any.
+        uptimeSeconds:
+          type: integer
+          minimum: 0
+          description: Runner uptime in seconds.
+
+    # ── 9. Idempotency & dedupe ──
+
+    IdempotencyKey:
+      type: string
+      format: uuid
+      description: |
+        Every write-side request (accept, lifecycle, artifact report) MUST carry
+        a UUID idempotency key.  Servers use this key for deduplication:
+        identical keys within the same idempotency window result in the same
+        response without side effects.
+
+    IdempotencyWindow:
+      type: object
+      description: Configuration for the idempotency window.
+      properties:
+        durationSeconds:
+          type: integer
+          minimum: 60
+          default: 3600
+          description: How long idempotency keys are retained.
+        maxKeys:
+          type: integer
+          minimum: 100
+          default: 10000
+          description: Maximum keys retained per runner.
+
+    # ── 10. Version compatibility ──
+
+    VersionCompatibility:
+      type: object
+      description: Runner version negotiation and compatibility info.
+      required:
+        - runnerInterfaceVersion
+        - supportedProtocolRange
+      properties:
+        runnerInterfaceVersion:
+          type: string
+          description: The runner interface spec version this runner implements (semver).
+        supportedProtocolRange:
+          type: string
+          description: Semver range of supported IEF-Protocol versions.
+        deprecationNotice:
+          type: string
+          description: Optional deprecation warning for this runner version.
+        upgradePath:
+          type: string
+          description: Recommended upgrade path, if applicable.
+
+    # ── Supporting schemas ──
+
+    EvidenceRef:
+      type: object
+      description: |
+        Immutable reference to evidence emitted by the runner.
+        The runner emits evidence only; it does NOT self-approve.
+        Operations / review gate evaluates evidence and decides acceptance.
+      required:
+        - evidenceId
+        - type
+        - createdAt
+      properties:
+        evidenceId:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum:
+            - acceptance_evidence
+            - completion_evidence
+            - failure_evidence
+            - blocked_evidence
+            - artifact_evidence
+          description: Classification of the evidence record.
+        uri:
+          type: string
+          format: uri
+          description: Location of the evidence payload.
+        createdAt:
+          type: string
+          format: date-time
+        hash:
+          type: string
+          description: SHA-256 hash of the evidence payload.
+
+  # ──────────────────────────────────────────────
+  # Components - Examples
+  # ──────────────────────────────────────────────
+  examples:
+
+    RunnerMetadataExample:
+      summary: Example runner metadata
+      value:
+        runnerId: "550e8400-e29b-41d4-a716-446655440000"
+        runnerType: "claudecode"
+        version: "0.1.0"
+        createdAt: "2026-06-25T10:00:00Z"
+        labels:
+          env: "staging"
+          region: "us-east-1"
+        capabilities:
+          supportedTaskTypes: ["code-generation", "code-review", "doc-repair"]
+          maxConcurrency: 3
+          maxPayloadBytes: 262144
+          supportedLanguages: ["typescript", "python", "yaml", "markdown"]
+          features: ["resume", "artifact-upload"]
+          canResume: true
+
+    # ── Example: Task accepted ──
+    TaskAcceptedExample:
+      summary: Task accepted
+      value:
+        taskId: "6f8a3c21-1b9e-4d0f-a832-0e9c7b5d1234"
+        status: "accepted"
+        timestamp: "2026-06-25T10:05:00Z"
+        evidence:
+          evidenceId: "7a1b2c3d-4e5f-6a7b-8c9d-0e1f2a3b4c5d"
+          type: "acceptance_evidence"
+          uri: "evidence://ief-ops/evidence/7a1b2c3d-4e5f-6a7b-8c9d-0e1f2a3b4c5d"
+          createdAt: "2026-06-25T10:05:00Z"
+          hash: "sha256:a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2"
+
+    # ── Example: Task rejected ──
+    TaskRejectedExample:
+      summary: Task rejected
+      value:
+        taskId: "6f8a3c21-1b9e-4d0f-a832-0e9c7b5d1234"
+        status: "rejected"
+        timestamp: "2026-06-25T10:05:00Z"
+        rejectionDetail: "Runner capacity exceeded; max concurrency reached."
+
+    # ── Example: Lifecycle started ──
+    LifecycleStartedExample:
+      summary: Lifecycle event - started
+      value:
+        taskId: "6f8a3c21-1b9e-4d0f-a832-0e9c7b5d1234"
+        runId: "1a2b3c4d-5e6f-7a8b-9c0d-1e2f3a4b5c6d"
+        actor: "claudecode-runner-1"
+        status: "started"
+        timestamp: "2026-06-25T10:06:00Z"
+        detail:
+          message: "Task execution started."
+          stage: "prepare"
+        idempotencyKey: "8b2c3d4e-5f6a-7b8c-9d0e-1f2a3b4c5d6e"
+
+    # ── Example: Lifecycle completed ──
+    LifecycleCompletedExample:
+      summary: Lifecycle event - completed
+      value:
+        taskId: "6f8a3c21-1b9e-4d0f-a832-0e9c7b5d1234"
+        runId: "1a2b3c4d-5e6f-7a8b-9c0d-1e2f3a4b5c6d"
+        actor: "claudecode-runner-1"
+        status: "completed"
+        timestamp: "2026-06-25T10:10:00Z"
+        detail:
+          message: "Task completed successfully."
+          progressPercent: 100
+          stage: "report"
+        evidence:
+          evidenceId: "9c3d4e5f-6a7b-8c9d-0e1f-2a3b4c5d6e7f"
+          type: "completion_evidence"
+          uri: "evidence://ief-ops/evidence/9c3d4e5f-6a7b-8c9d-0e1f-2a3b4c5d6e7f"
+          createdAt: "2026-06-25T10:10:00Z"
+          hash: "sha256:b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3"
+        idempotencyKey: "a4d5e6f7-8b9c-0d1e-2f3a-4b5c6d7e8f9a"
+
+    # ── Example: Lifecycle failed ──
+    LifecycleFailedExample:
+      summary: Lifecycle event - failed
+      value:
+        taskId: "6f8a3c21-1b9e-4d0f-a832-0e9c7b5d1234"
+        runId: "1a2b3c4d-5e6f-7a8b-9c0d-1e2f3a4b5c6d"
+        actor: "claudecode-runner-1"
+        status: "failed"
+        timestamp: "2026-06-25T10:08:00Z"
+        detail:
+          message: "Task failed due to unexpected error in execution."
+          stage: "execute"
+        errors:
+          - code: "RUNNER_EXECUTION_ERROR"
+            message: "Worker process exited with code 1."
+            severity: "fatal"
+            source: "runner"
+            retryable: false
+            timestamp: "2026-06-25T10:08:00Z"
+        evidence:
+          evidenceId: "b5e6f7a8-9c0d-1e2f-3a4b-5c6d7e8f9a0b"
+          type: "failure_evidence"
+          uri: "evidence://ief-ops/evidence/b5e6f7a8-9c0d-1e2f-3a4b-5c6d7e8f9a0b"
+          createdAt: "2026-06-25T10:08:00Z"
+          hash: "sha256:c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4"
+        idempotencyKey: "c6f7a8b9-0d1e-2f3a-4b5c-6d7e8f9a0b1c"
+
+    # ── Example: Lifecycle blocked ──
+    LifecycleBlockedExample:
+      summary: Lifecycle event - blocked
+      value:
+        taskId: "6f8a3c21-1b9e-4d0f-a832-0e9c7b5d1234"
+        runId: "1a2b3c4d-5e6f-7a8b-9c0d-1e2f3a4b5c6d"
+        actor: "claudecode-runner-1"
+        status: "blocked"
+        timestamp: "2026-06-25T10:07:00Z"
+        detail:
+          message: "Task blocked - waiting for external dependency resolution."
+          stage: "execute"
+        errors:
+          - code: "DEPENDENCY_UNAVAILABLE"
+            message: "Required API endpoint unreachable."
+            severity: "warning"
+            source: "network"
+            retryable: true
+            timestamp: "2026-06-25T10:07:00Z"
+        evidence:
+          evidenceId: "d7a8b9c0-1e2f-3a4b-5c6d-7e8f9a0b1c2d"
+          type: "blocked_evidence"
+          uri: "evidence://ief-ops/evidence/d7a8b9c0-1e2f-3a4b-5c6d-7e8f9a0b1c2d"
+          createdAt: "2026-06-25T10:07:00Z"
+          hash: "sha256:d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5"
+        idempotencyKey: "e8b9c0d1-2f3a-4b5c-6d7e-8f9a0b1c2d3e"
+
+    # ── Example: ArtifactRef ──
+    ArtifactRefExample:
+      summary: Example artifact report
+      value:
+        taskId: "6f8a3c21-1b9e-4d0f-a832-0e9c7b5d1234"
+        runId: "1a2b3c4d-5e6f-7a8b-9c0d-1e2f3a4b5c6d"
+        artifacts:
+          - artifact_id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+            artifact_type: "generated_spec"
+            name: "generated-spec.yaml"
+            location: "s3://ief-artifacts/6f8a3c21/generated-spec.yaml"
+            mediaType: "application/yaml"
+            sizeBytes: 12480
+            checksum: "sha256:e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6"
+            description: "Generated Evolution Guardrail Spec"
+            created_by: "claudecode-runner-1"
+            metadata:
+              generatedBy: "claudecode"
+              stage: "execute"
+          - artifact_id: "b2c3d4e5-f6a7-8901-bcde-f12345678901"
+            artifact_type: "execution_log"
+            name: "execution-log.json"
+            location: "s3://ief-artifacts/6f8a3c21/execution-log.json"
+            mediaType: "application/json"
+            sizeBytes: 4096
+            checksum: "sha256:f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7"
+            description: "Execution trace log"
+            created_by: "claudecode-runner-1"
+        idempotencyKey: "f9c0d1e2-3a4b-5c6d-7e8f-9a0b1c2d3e4f"
